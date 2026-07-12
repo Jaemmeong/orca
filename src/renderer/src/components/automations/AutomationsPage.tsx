@@ -95,6 +95,8 @@ import {
   getAutomationRunViewState
 } from './automation-run-view-state'
 import { AutomationRunLaunchFailure } from './AutomationRunLaunchFailure'
+import { useConfirmationDialog } from '@/components/confirmation-dialog'
+import { forgetLaunchConfirmation } from '@/lib/agent-launch-recovery-action-copy'
 import {
   automationRunMatchesPaneKey,
   buildAutomationRunOpenLayout,
@@ -139,6 +141,7 @@ import {
   deleteAutomationForTarget,
   type AutomationHostTarget,
   getAutomationListTarget,
+  forgetAutomationRunForTarget,
   getAutomationOwnerTarget,
   getAutomationTargetFromHostId,
   listAutomationRunsForTarget,
@@ -419,6 +422,8 @@ export default function AutomationsPage(): React.JSX.Element {
   const [rerunRunIdsInFlight, setRerunRunIdsInFlight] = useState<ReadonlySet<string>>(
     () => new Set()
   )
+  const [forgetRunIdInFlight, setForgetRunIdInFlight] = useState<string | null>(null)
+  const confirmDialog = useConfirmationDialog()
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
@@ -1861,6 +1866,38 @@ export default function AutomationsPage(): React.JSX.Element {
     }
   }
 
+  const forgetAutomationRun = async (run: AutomationRun): Promise<void> => {
+    if (!selected) {
+      return
+    }
+    // Forget cannot stop a possibly-live remote process (plan :498), so it is
+    // gated behind an explicit destructive confirmation carrying that warning.
+    if (!(await confirmDialog(forgetLaunchConfirmation()))) {
+      return
+    }
+    setForgetRunIdInFlight(run.id)
+    try {
+      const updated = await forgetAutomationRunForTarget(
+        getAutomationOwnerTarget(selected, automationHostTarget),
+        run.id
+      )
+      // The host returns the settled run; merge it so the card reflects the
+      // forgotten state without waiting for the next list refresh.
+      setSelectedAutomationRuns((prev) => ({
+        ...prev,
+        runs: prev.runs.map((existing) => (existing.id === updated.id ? updated : existing))
+      }))
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : translate('agentLaunch.forgetConfirm.failed', "Couldn't forget this launch. Try again.")
+      )
+    } finally {
+      setForgetRunIdInFlight(null)
+    }
+  }
+
   const runExternalAction = async (
     manager: ExternalAutomationManager,
     job: ExternalAutomationJob,
@@ -2974,6 +3011,8 @@ export default function AutomationsPage(): React.JSX.Element {
                       <AutomationRunLaunchFailure
                         failure={selectedAutomationRunPageLaunchFailure.failure}
                         forgottenAt={selectedAutomationRunPageLaunchFailure.forgottenAt}
+                        onForget={() => void forgetAutomationRun(selectedAutomationRunPage)}
+                        busy={forgetRunIdInFlight === selectedAutomationRunPage.id}
                       />
                     ) : null}
                     <CommentMarkdown

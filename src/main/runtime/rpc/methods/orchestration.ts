@@ -186,6 +186,10 @@ const DispatchForgetParams = z.object({
   expectedFailureId: OptionalString
 })
 
+const DispatchShowRawParams = z.object({
+  task: requiredString('Missing --task')
+})
+
 const AskParams = z.object({
   to: requiredString('Missing --to'),
   question: requiredString('Missing --question'),
@@ -610,6 +614,24 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
         throw new Error(`Dispatch for task ${params.task} is not in a forgettable state`)
       }
       return { dispatch: forgotten }
+    }
+  }),
+
+  defineMethod({
+    name: 'orchestration.dispatchShowRaw',
+    params: DispatchShowRawParams,
+    // Why (§U9 W-T2 reader, plan :498 + ledger #12c): the U9 renderer ships WITH the
+    // host, so its recovery surface must read the RAW dispatch status — including the
+    // durable 'forgotten' state — NOT the 'forgotten'→'failed' projection dispatchShow
+    // applies for independently-versioned CLI readers. On a fresh mount (app reload, or
+    // the plan's "explicit later Retry" flow where no mutation result is in hand) a
+    // projected read would render 'failed' with the wrong retry affordance, silently
+    // erasing the distinction the user created by forgetting. Per-task scoped; carries
+    // agent_launch_failure so the surface reads the failureId for the forget anti-race.
+    handler: (params, { runtime }) => {
+      const db = runtime.getOrchestrationDb()
+      const ctx = db.getDispatchContext(params.task)
+      return { dispatch: ctx ?? null }
     }
   }),
 

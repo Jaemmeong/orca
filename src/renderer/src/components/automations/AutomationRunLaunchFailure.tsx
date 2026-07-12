@@ -1,20 +1,29 @@
 import { TriangleAlert } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
 import { agentLaunchFailureMessage } from '@/lib/agent-launch-failure-copy'
+import { recoveryActionLabel } from '@/lib/agent-launch-recovery-action-copy'
 import type { PersistedAgentLaunchFailure } from '../../../../shared/agent-launch-contract'
 
-/** Display-only recovery card for an automation run whose agent launch failed
+/** Display + Forget recovery card for an automation run whose agent launch failed
  *  or was left stranded. Renders the client-safe code+hint only (never argv/env/
- *  paths). The owner-authorized Forget affordance lands with its host RPC; until
- *  then this card exists so a stranded `dispatching + launch_state_unknown` run
- *  is distinguishable from one still in progress. */
+ *  paths). Forget is offered only while the launch is provider-unknown (plan :941)
+ *  and a forgotten automation run never retries (plan :498), so — unlike the
+ *  workspace card — this one never offers Retry. */
 export function AutomationRunLaunchFailure({
   failure,
-  forgottenAt
+  forgottenAt,
+  onForget,
+  busy = false
 }: {
   failure: PersistedAgentLaunchFailure
   forgottenAt: number | null
+  onForget?: () => void
+  busy?: boolean
 }): React.JSX.Element {
+  // Forget frees the stranded reservation but cannot stop a possibly-live remote
+  // process, so it is offered only for the provider-unknown state (plan :941).
+  const canForget = !forgottenAt && failure.code === 'launch_state_unknown' && Boolean(onForget)
   return (
     <div
       role="alert"
@@ -38,6 +47,19 @@ export function AutomationRunLaunchFailure({
               'agentLaunch.unattendedFailure.forgotten',
               "You forgot this launch, so it won't run again."
             )}
+          </div>
+        ) : null}
+        {canForget ? (
+          <div className="mt-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="destructive"
+              disabled={busy}
+              onClick={onForget}
+            >
+              {recoveryActionLabel('forget-launch')}
+            </Button>
           </div>
         ) : null}
       </div>

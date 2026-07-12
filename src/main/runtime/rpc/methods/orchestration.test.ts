@@ -56,7 +56,7 @@ describe('orchestration RPC methods', () => {
 
   it('registers all expected methods', () => {
     const registry = buildRegistry(ORCHESTRATION_METHODS)
-    expect(registry.size).toBe(17)
+    expect(registry.size).toBe(18)
     expect(registry.has('orchestration.send')).toBe(true)
     expect(registry.has('orchestration.check')).toBe(true)
     expect(registry.has('orchestration.reply')).toBe(true)
@@ -67,6 +67,7 @@ describe('orchestration RPC methods', () => {
     expect(registry.has('orchestration.dispatch')).toBe(true)
     expect(registry.has('orchestration.dispatchShow')).toBe(true)
     expect(registry.has('orchestration.dispatchForget')).toBe(true)
+    expect(registry.has('orchestration.dispatchShowRaw')).toBe(true)
     expect(registry.has('orchestration.ask')).toBe(true)
     expect(registry.has('orchestration.run')).toBe(true)
     expect(registry.has('orchestration.runStop')).toBe(true)
@@ -1360,6 +1361,58 @@ describe('orchestration RPC methods', () => {
       await expect(
         call('orchestration.dispatchForget', { task: task.id })
       ).rejects.toThrow('not in a forgettable state')
+    })
+  })
+
+  describe('orchestration.dispatchShowRaw', () => {
+    const strandedFailure = {
+      code: 'launch_state_unknown' as const,
+      version: 1 as const,
+      failureId: 'fail-strand-raw',
+      intent: 'orchestration' as const,
+      occurredAt: 1_700_000_000_000
+    }
+
+    it('returns the RAW forgotten status where dispatchShow projects to failed', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.forgetDispatch(ctx.id)
+
+      const raw = (await call('orchestration.dispatchShowRaw', {
+        task: task.id
+      })) as { dispatch: { status: string } | null }
+      const projected = (await call('orchestration.dispatchShow', {
+        task: task.id
+      })) as { dispatch: { status: string } | null }
+
+      // The renderer ships with the host and must see the durable 'forgotten'
+      // disposition; the CLI's dispatchShow still coalesces it to legacy 'failed'.
+      expect(raw.dispatch?.status).toBe('forgotten')
+      expect(projected.dispatch?.status).toBe('failed')
+    })
+
+    it('carries the structured agent_launch_failure so the surface reads the failureId', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.markDispatchLaunchUnknown(ctx.id, strandedFailure)
+
+      const raw = (await call('orchestration.dispatchShowRaw', {
+        task: task.id
+      })) as { dispatch: { agent_launch_failure: string | null } | null }
+
+      expect(raw.dispatch?.agent_launch_failure).toContain('fail-strand-raw')
+    })
+
+    it('returns null for a task with no dispatch context', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const raw = (await call('orchestration.dispatchShowRaw', {
+        task: task.id
+      })) as { dispatch: null }
+
+      expect(raw.dispatch).toBeNull()
     })
   })
 
