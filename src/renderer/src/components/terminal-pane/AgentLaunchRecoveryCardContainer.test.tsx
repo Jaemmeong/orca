@@ -16,6 +16,9 @@ type WorktreeShape = {
 
 const storeBox = vi.hoisted(() => ({ state: null as unknown }))
 const worktreeBox = vi.hoisted(() => ({ worktree: null as WorktreeShape | null }))
+// Holds what the soft confirm hook returns; a null value reproduces a
+// provider-less render (the crash class that took out the WorktreeCard family).
+const confirmBox = vi.hoisted(() => ({ value: null as unknown }))
 
 const mocks = vi.hoisted(() => ({
   retryWorktreeAgentLaunch: vi.fn(),
@@ -33,7 +36,7 @@ vi.mock('@/store', () => ({
 }))
 
 vi.mock('@/components/confirmation-dialog', () => ({
-  useConfirmationDialog: () => mocks.confirm
+  useOptionalConfirmationDialog: () => confirmBox.value
 }))
 
 vi.mock('@/store/selectors', () => ({
@@ -76,6 +79,7 @@ beforeEach(() => {
   mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 0, hostName: '' })
   mocks.forgetUnknownAgentLaunchSiblings.mockResolvedValue({ forgottenCount: 0 })
   mocks.confirm.mockResolvedValue(true)
+  confirmBox.value = mocks.confirm
   worktreeBox.worktree = null
   storeBox.state = {
     retryWorktreeAgentLaunch: mocks.retryWorktreeAgentLaunch,
@@ -235,6 +239,24 @@ describe('AgentLaunchRecoveryCardContainer', () => {
     )
     expect(mocks.forgetWorktreeAgentLaunch).toHaveBeenCalledOnce()
     expect(mocks.forgetUnknownAgentLaunchSiblings).not.toHaveBeenCalled()
+  })
+
+  it('renders the recovery card and no-ops forget when no confirmation provider is mounted', async () => {
+    // Defensive parity with the WorktreeCard family fix: rendered without the
+    // provider the soft hook returns null; the card must render and the
+    // destructive forget must not fire unconfirmed rather than throwing.
+    confirmBox.value = null
+    worktreeBox.worktree = {
+      agentLaunchFailure: failure('launch_state_unknown'),
+      pendingAgentLaunch: { operationId: 'op-3', requestedAgent: undefined as never }
+    }
+    await render()
+    expect(document.body.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.forgetWorktreeAgentLaunch).not.toHaveBeenCalled()
+    expect(mocks.unknownAgentLaunchSiblingPreflight).not.toHaveBeenCalled()
   })
 
   it('routes selection recovery to the desktop-host agents settings pane', async () => {

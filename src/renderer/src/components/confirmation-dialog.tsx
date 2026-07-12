@@ -165,3 +165,11 @@ export function useConfirmationDialog(): ConfirmationDialogContextValue {
   }
   return confirm
 }
+
+/** Non-throwing variant returning null when no provider is mounted. Lets a card
+ *  that renders inside another component's isolation tests (which omit the
+ *  provider) degrade its confirm-gated affordance instead of crashing the whole
+ *  host test family. */
+export function useOptionalConfirmationDialog(): ConfirmationDialogContextValue | null {
+  return useContext(ConfirmationDialogContext)
+}

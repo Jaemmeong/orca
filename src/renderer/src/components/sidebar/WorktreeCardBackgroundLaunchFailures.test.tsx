@@ -14,6 +14,9 @@ type WorktreeShape = { backgroundAgentLaunches?: BackgroundAgentLaunchAttempt[] 
 
 const storeBox = vi.hoisted(() => ({ state: null as unknown }))
 const worktreeBox = vi.hoisted(() => ({ worktree: null as WorktreeShape | null }))
+// Holds what the soft confirm hook returns; a null value reproduces a
+// provider-less render (the crash class that took out the WorktreeCard family).
+const confirmBox = vi.hoisted(() => ({ value: null as unknown }))
 
 const mocks = vi.hoisted(() => ({
   retryBackgroundAgentLaunch: vi.fn(),
@@ -32,7 +35,7 @@ vi.mock('@/store', () => ({
 }))
 
 vi.mock('@/components/confirmation-dialog', () => ({
-  useConfirmationDialog: () => mocks.confirm
+  useOptionalConfirmationDialog: () => confirmBox.value
 }))
 
 vi.mock('@/store/selectors', () => ({
@@ -93,6 +96,7 @@ beforeEach(() => {
   mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 0, hostName: '' })
   mocks.forgetUnknownAgentLaunchSiblings.mockResolvedValue({ forgottenCount: 0 })
   mocks.confirm.mockResolvedValue(true)
+  confirmBox.value = mocks.confirm
   worktreeBox.worktree = null
   storeBox.state = {
     // The container guards a missing worktreesByRepo slice (partial sibling-suite
@@ -251,6 +255,26 @@ describe('WorktreeCardBackgroundLaunchFailures', () => {
     )
     expect(mocks.forgetBackgroundAgentLaunch).toHaveBeenCalledOnce()
     expect(mocks.forgetUnknownAgentLaunchSiblings).not.toHaveBeenCalled()
+  })
+
+  it('renders the recovery card and no-ops forget when no confirmation provider is mounted', async () => {
+    // Host families (WorktreeCard/WorktreeList) render this card in isolation
+    // without the ConfirmationDialogProvider; the soft hook returns null there.
+    // The card must still render and the destructive forget must not fire
+    // unconfirmed, rather than throwing and crashing the whole family.
+    confirmBox.value = null
+    worktreeBox.worktree = {
+      backgroundAgentLaunches: [
+        attempt({ state: 'pending', failure: failure('launch_state_unknown') })
+      ]
+    }
+    await render()
+    expect(document.body.querySelector('[role="alert"]')).not.toBeNull()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.forgetBackgroundAgentLaunch).not.toHaveBeenCalled()
+    expect(mocks.unknownAgentLaunchSiblingPreflight).not.toHaveBeenCalled()
   })
 
   it('routes reconnect on an unknown attempt to the ssh settings pane', async () => {

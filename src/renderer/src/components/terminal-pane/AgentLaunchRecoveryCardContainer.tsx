@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
-import { useConfirmationDialog } from '@/components/confirmation-dialog'
+import { useOptionalConfirmationDialog } from '@/components/confirmation-dialog'
 import { AgentLaunchRecoveryCard } from './AgentLaunchRecoveryCard'
 import {
   forgetLaunchConfirmation,
@@ -38,7 +38,10 @@ export function AgentLaunchRecoveryCardContainer({
   const forgetUnknownAgentLaunchSiblings = useAppStore((s) => s.forgetUnknownAgentLaunchSiblings)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const openModal = useAppStore((s) => s.openModal)
-  const confirm = useConfirmationDialog()
+  // Read the confirm context softly so rendering inside a host family's
+  // provider-less isolation test degrades the confirm-gated forget instead of
+  // throwing (the same crash class that took out the WorktreeCard family).
+  const confirm = useOptionalConfirmationDialog()
   const [busy, setBusy] = useState(false)
 
   const onAction = useCallback(
@@ -60,6 +63,11 @@ export function AgentLaunchRecoveryCardContainer({
         return
       }
       if (id === 'forget-launch') {
+        // Forget is destructive and must be confirmed; with no provider mounted
+        // there is no way to confirm, so it cannot proceed.
+        if (!confirm) {
+          return
+        }
         // The pending operation id is the anti-race guard the host requires; a
         // missing one means reconciliation already cleared the pending, so there
         // is nothing to forget.

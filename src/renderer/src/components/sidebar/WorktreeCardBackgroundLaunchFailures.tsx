@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
-import { useConfirmationDialog } from '@/components/confirmation-dialog'
+import { useOptionalConfirmationDialog } from '@/components/confirmation-dialog'
 import { WorktreeAgentLaunchFailure } from './WorktreeAgentLaunchFailure'
 import {
   forgetLaunchConfirmation,
@@ -64,7 +64,10 @@ export function WorktreeCardBackgroundLaunchFailures({
   const forgetUnknownAgentLaunchSiblings = useAppStore((s) => s.forgetUnknownAgentLaunchSiblings)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const openModal = useAppStore((s) => s.openModal)
-  const confirm = useConfirmationDialog()
+  // Rendered inside WorktreeCard/WorktreeList isolation tests that omit the
+  // provider; read the context softly so an absent provider degrades the
+  // confirm-gated forget instead of throwing and crashing the host test family.
+  const confirm = useOptionalConfirmationDialog()
   const [busyAttemptIds, setBusyAttemptIds] = useState<ReadonlySet<string>>(() => new Set())
 
   const setBusy = useCallback((attemptId: string, busy: boolean) => {
@@ -100,6 +103,11 @@ export function WorktreeCardBackgroundLaunchFailures({
         return
       }
       if (id === 'forget-launch') {
+        // Forget is destructive and must be confirmed; with no provider mounted
+        // there is no way to confirm, so it cannot proceed.
+        if (!confirm) {
+          return
+        }
         // Preflight the same-principal siblings stranded on the anchor's
         // disconnected host so the confirmation can offer the ":498 Also forget N…"
         // opt-in; a failed preflight must not block the single forget, so it
