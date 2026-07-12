@@ -18,8 +18,6 @@ const worktreeBox = vi.hoisted(() => ({ worktree: null as WorktreeShape | null }
 const mocks = vi.hoisted(() => ({
   retryBackgroundAgentLaunch: vi.fn(),
   forgetBackgroundAgentLaunch: vi.fn(),
-  unknownAgentLaunchSiblingPreflight: vi.fn(),
-  forgetUnknownAgentLaunchSiblings: vi.fn(),
   openSettingsTarget: vi.fn(),
   openModal: vi.fn(),
   confirm: vi.fn()
@@ -90,8 +88,6 @@ beforeEach(() => {
   }
   mocks.retryBackgroundAgentLaunch.mockResolvedValue({ status: 'launched', receipt: {} })
   mocks.forgetBackgroundAgentLaunch.mockResolvedValue({ status: 'forgotten' })
-  mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 0, hostName: '' })
-  mocks.forgetUnknownAgentLaunchSiblings.mockResolvedValue({ forgottenCount: 0 })
   mocks.confirm.mockResolvedValue(true)
   worktreeBox.worktree = null
   storeBox.state = {
@@ -101,8 +97,6 @@ beforeEach(() => {
     worktreesByRepo: {},
     retryBackgroundAgentLaunch: mocks.retryBackgroundAgentLaunch,
     forgetBackgroundAgentLaunch: mocks.forgetBackgroundAgentLaunch,
-    unknownAgentLaunchSiblingPreflight: mocks.unknownAgentLaunchSiblingPreflight,
-    forgetUnknownAgentLaunchSiblings: mocks.forgetUnknownAgentLaunchSiblings,
     openSettingsTarget: mocks.openSettingsTarget,
     openModal: mocks.openModal
   }
@@ -196,61 +190,6 @@ describe('WorktreeCardBackgroundLaunchFailures', () => {
     })
     expect(mocks.confirm).toHaveBeenCalledOnce()
     expect(mocks.forgetBackgroundAgentLaunch).not.toHaveBeenCalled()
-  })
-
-  it('offers the sibling opt-in and bulk-forgets the worktree siblings when checked', async () => {
-    mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 2, hostName: 'devbox' })
-    mocks.confirm.mockImplementation(
-      async (options: { optIn?: { onConfirm: (checked: boolean) => void } }) => {
-        options.optIn?.onConfirm(true)
-        return true
-      }
-    )
-    worktreeBox.worktree = {
-      backgroundAgentLaunches: [
-        attempt({ state: 'pending', failure: failure('launch_state_unknown') })
-      ]
-    }
-    await render()
-    await act(async () => {
-      buttonByLabel('Forget launch…').click()
-    })
-    expect(mocks.unknownAgentLaunchSiblingPreflight).toHaveBeenCalledExactlyOnceWith({
-      worktreeId: WORKTREE_ID
-    })
-    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({
-        optIn: expect.objectContaining({
-          label: 'Also forget 2 other stranded launches on devbox.'
-        })
-      })
-    )
-    expect(mocks.forgetBackgroundAgentLaunch).toHaveBeenCalledExactlyOnceWith({
-      attemptId: 'attempt-1',
-      worktreeId: WORKTREE_ID,
-      expectedOperationId: 'op-9'
-    })
-    expect(mocks.forgetUnknownAgentLaunchSiblings).toHaveBeenCalledExactlyOnceWith({
-      worktreeId: WORKTREE_ID
-    })
-  })
-
-  it('omits the opt-in and still forgets the attempt when the sibling preflight fails', async () => {
-    mocks.unknownAgentLaunchSiblingPreflight.mockRejectedValue(new Error('unreachable'))
-    worktreeBox.worktree = {
-      backgroundAgentLaunches: [
-        attempt({ state: 'pending', failure: failure('launch_state_unknown') })
-      ]
-    }
-    await render()
-    await act(async () => {
-      buttonByLabel('Forget launch…').click()
-    })
-    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
-      expect.not.objectContaining({ optIn: expect.anything() })
-    )
-    expect(mocks.forgetBackgroundAgentLaunch).toHaveBeenCalledOnce()
-    expect(mocks.forgetUnknownAgentLaunchSiblings).not.toHaveBeenCalled()
   })
 
   it('routes reconnect on an unknown attempt to the ssh settings pane', async () => {

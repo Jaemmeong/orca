@@ -3,10 +3,7 @@ import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
 import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { WorktreeAgentLaunchFailure } from './WorktreeAgentLaunchFailure'
-import {
-  forgetLaunchConfirmation,
-  forgetSiblingsOptInLabel
-} from '@/lib/agent-launch-recovery-action-copy'
+import { forgetLaunchConfirmation } from '@/lib/agent-launch-recovery-action-copy'
 import {
   resolveBackgroundAgentLaunchRecovery,
   type BackgroundAgentLaunchRecovery
@@ -58,10 +55,6 @@ export function WorktreeCardBackgroundLaunchFailures({
   const attempts = useAppStore((s) => selectBackgroundAttempts(s, worktreeId))
   const retryBackgroundAgentLaunch = useAppStore((s) => s.retryBackgroundAgentLaunch)
   const forgetBackgroundAgentLaunch = useAppStore((s) => s.forgetBackgroundAgentLaunch)
-  const unknownAgentLaunchSiblingPreflight = useAppStore(
-    (s) => s.unknownAgentLaunchSiblingPreflight
-  )
-  const forgetUnknownAgentLaunchSiblings = useAppStore((s) => s.forgetUnknownAgentLaunchSiblings)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const openModal = useAppStore((s) => s.openModal)
   const confirm = useConfirmationDialog()
@@ -100,36 +93,9 @@ export function WorktreeCardBackgroundLaunchFailures({
         return
       }
       if (id === 'forget-launch') {
-        // Preflight the same-principal siblings stranded on the anchor's
-        // disconnected host so the confirmation can offer the ":498 Also forget N…"
-        // opt-in; a failed preflight must not block the single forget, so it
-        // degrades to the plain confirmation.
-        let siblingCount = 0
-        let siblingHostName = ''
-        try {
-          const preflight = await unknownAgentLaunchSiblingPreflight({ worktreeId })
-          siblingCount = preflight.count
-          siblingHostName = preflight.hostName
-        } catch {
-          siblingCount = 0
-        }
-        let forgetSiblings = false
         // Forget cannot stop a possibly-live remote process (plan :498), so it is
         // gated behind an explicit destructive confirmation carrying that warning.
-        const confirmed = await confirm(
-          siblingCount > 0
-            ? {
-                ...forgetLaunchConfirmation(),
-                optIn: {
-                  label: forgetSiblingsOptInLabel(siblingCount, siblingHostName),
-                  onConfirm: (checked) => {
-                    forgetSiblings = checked
-                  }
-                }
-              }
-            : forgetLaunchConfirmation()
-        )
-        if (!confirmed) {
+        if (!(await confirm(forgetLaunchConfirmation()))) {
           return
         }
         // The attempt's operation id is the anti-race guard the host requires; it
@@ -142,12 +108,6 @@ export function WorktreeCardBackgroundLaunchFailures({
             worktreeId,
             expectedOperationId: attempt.operationId
           })
-          // The bulk is worktree-scoped and clears only interactive siblings (the
-          // structural guarantee keeps background-owned rows out of the count), so it
-          // rides after the single attempt forget.
-          if (forgetSiblings) {
-            await forgetUnknownAgentLaunchSiblings({ worktreeId })
-          }
         } finally {
           setBusy(attempt.attemptId, false)
         }
@@ -175,8 +135,6 @@ export function WorktreeCardBackgroundLaunchFailures({
       setBusy,
       retryBackgroundAgentLaunch,
       forgetBackgroundAgentLaunch,
-      unknownAgentLaunchSiblingPreflight,
-      forgetUnknownAgentLaunchSiblings,
       openSettingsTarget,
       openModal
     ]
