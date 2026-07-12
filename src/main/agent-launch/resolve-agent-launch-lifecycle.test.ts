@@ -6,6 +6,7 @@ import type {
   ResolveAgentLaunchRequest
 } from '../../shared/agent-launch-host-contract'
 import { resolveAgentLaunch, type ResolveAgentLaunchOutcome } from './resolve-agent-launch'
+import { tuiAgentToAgentKind } from '../../shared/agent-kind'
 import {
   catalogOf,
   customAgent,
@@ -253,6 +254,15 @@ function assertOutcome(outcome: ResolveAgentLaunchOutcome, expected: Expected): 
     throw new Error('expected a successful launch')
   }
   expect(outcome.launch.snapshot.mode).toBe(expected.launch)
+  // Oracle 17 mode semantics: used_custom_agent is exactly `mode === 'custom'`
+  // (a custom launch stays true even with empty args/env; safe-fallback and
+  // built-in are false), and the base kind is always the resolved base's kind —
+  // never `other`, since a valid launch always proved a base agent.
+  expect(outcome.launch.telemetry.usedCustomAgent).toBe(expected.launch === 'custom')
+  expect(outcome.launch.telemetry.agentKind).toBe(
+    tuiAgentToAgentKind(outcome.launch.baseAgent)
+  )
+  expect(outcome.launch.telemetry.agentKind).not.toBe('other')
   // Every launch cell in this table resolves to the stock `claude` argv.
   expect([...outcome.launch.argv]).toEqual(['claude'])
   const noticeCodes = outcome.launch.notices.map((notice) => notice.code)

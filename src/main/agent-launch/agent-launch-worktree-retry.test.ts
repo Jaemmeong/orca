@@ -48,7 +48,8 @@ function harness(overrides: Partial<WorktreeRetryAgentLaunchDeps> = {}): Harness
       baseAgent: 'claude',
       notices: [],
       launchToken: 'tok',
-      catalogRevision: 1
+      catalogRevision: 1,
+      telemetry: { agentKind: 'claude-code', usedCustomAgent: false }
     }
   }
   const runLaunch = vi.fn(async (input: { request: AgentLaunchSpawnRequest }) => {
@@ -124,7 +125,8 @@ describe('runWorktreeRetryAgentLaunch idempotency', () => {
         baseAgent: 'claude',
         notices: [],
         launchToken: 'inflight',
-        catalogRevision: 1
+        catalogRevision: 1,
+        telemetry: { agentKind: 'claude-code', usedCustomAgent: false }
       }
     }
     const inFlight: WorktreeRetryInFlight = {

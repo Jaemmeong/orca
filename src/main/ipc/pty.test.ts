@@ -1417,6 +1417,39 @@ describe('registerPtyHandlers', () => {
         expect(result.agentLaunch?.receipt?.launchToken).toBe(options.launchToken)
       })
 
+      it('emits agent_started from the resolved receipt, ignoring a spoofed client agent_kind', async () => {
+        // Oracle 17: the host overwrites the client-threaded agent_kind +
+        // used_custom_agent with the values derived from the validated launch,
+        // so a spoofed client kind never reaches the wire. A built-in claude
+        // launch reports claude-code + used_custom_agent:false even though the
+        // client threaded `codex`.
+        trackMock.mockReset()
+        makeAgentLaunchSpy()
+        handlers.clear()
+        registerPtyHandlers(
+          mainWindow as never,
+          undefined,
+          undefined,
+          agentLaunchSettings() as never
+        )
+        await handlers.get('pty:spawn')!(null, {
+          cols: 80,
+          rows: 24,
+          agentLaunch: { selection: { kind: 'agent', agent: 'claude' }, prompt: 'hi' },
+          telemetry: {
+            agent_kind: 'codex',
+            launch_source: 'new_workspace_composer',
+            request_kind: 'new'
+          }
+        })
+        expect(trackMock).toHaveBeenCalledWith('agent_started', {
+          agent_kind: 'claude-code',
+          launch_source: 'new_workspace_composer',
+          request_kind: 'new',
+          used_custom_agent: false
+        })
+      })
+
       it('returns a typed failure and creates no PTY when the base agent is disabled', async () => {
         const spawnSpy = makeAgentLaunchSpy()
         handlers.clear()
@@ -11233,7 +11266,9 @@ describe('registerPtyHandlers', () => {
       expect(trackMock).toHaveBeenCalledWith('agent_started', {
         agent_kind: 'claude-code',
         launch_source: 'new_workspace_composer',
-        request_kind: 'new'
+        request_kind: 'new',
+        // No host resolution on this direct path => not a custom agent.
+        used_custom_agent: false
       })
     })
 
@@ -11254,6 +11289,34 @@ describe('registerPtyHandlers', () => {
           agent_kind: 'claude-code',
           launch_source: 'not_a_real_surface',
           request_kind: 'new'
+        }
+      })
+      expect(trackMock).not.toHaveBeenCalledWith('agent_started', expect.anything())
+    })
+
+    it('does not emit agent_started on a reattach (no duplicate launch event)', async () => {
+      // Why: a reattach reconnects to an already-launched process; the original
+      // spawn already emitted, so a second agent_started would double-count.
+      setLocalPtyProvider({
+        spawn: vi.fn(async () => ({ id: 'reattach-pty', pid: 7, isReattach: true })),
+        write: vi.fn(),
+        resize: vi.fn(),
+        kill: vi.fn(),
+        shutdown: vi.fn(),
+        onData: vi.fn(() => vi.fn()),
+        onExit: vi.fn(() => vi.fn()),
+        listProcesses: vi.fn(async () => []),
+        getForegroundProcess: vi.fn(async () => null)
+      } as never)
+      handlers.clear()
+      registerPtyHandlers(mainWindow as never)
+      await handlers.get('pty:spawn')!(null, {
+        cols: 80,
+        rows: 24,
+        telemetry: {
+          agent_kind: 'claude-code',
+          launch_source: 'new_workspace_composer',
+          request_kind: 'resume'
         }
       })
       expect(trackMock).not.toHaveBeenCalledWith('agent_started', expect.anything())

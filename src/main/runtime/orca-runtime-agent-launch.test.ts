@@ -37,7 +37,8 @@ const RECEIPT = {
   baseAgent: 'claude' as const,
   notices: [],
   launchToken: 'tok-1',
-  catalogRevision: 1
+  catalogRevision: 1,
+  telemetry: { agentKind: 'claude-code' as const, usedCustomAgent: false }
 }
 
 describe('createTerminal host-resolved agentLaunch', () => {

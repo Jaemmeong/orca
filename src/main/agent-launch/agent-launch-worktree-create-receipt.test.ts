@@ -50,7 +50,8 @@ const RECEIPT: AgentLaunchReceipt = {
   baseAgent: 'claude',
   notices: [],
   launchToken: 'tok-1',
-  catalogRevision: 3
+  catalogRevision: 3,
+  telemetry: { agentKind: 'claude-code', usedCustomAgent: false }
 }
 
 function buildDeps(

@@ -48,7 +48,8 @@ function launchedResolution(): AgentLaunchSpawnResolution {
     baseAgent: 'codex',
     notices: [],
     launchToken: 'token-1',
-    catalogRevision: 1
+    catalogRevision: 1,
+    telemetry: { agentKind: 'codex', usedCustomAgent: true }
   }
   return { ok: true, plan: {} as AgentStartupPlan, receipt }
 }

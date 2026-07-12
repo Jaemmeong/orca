@@ -1,7 +1,11 @@
 import { z } from 'zod'
 import { isTuiAgent } from '../../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../../shared/types'
-import { workspaceSourceSchema } from '../../../../shared/telemetry-events'
+import {
+  launchSourceSchema,
+  requestKindSchema,
+  workspaceSourceSchema
+} from '../../../../shared/telemetry-events'
 import { sleepingAgentLaunchConfigSchema } from '../../../../shared/workspace-session-sleeping-agents'
 import { AgentLaunchSpawnRequestSchema } from './agent-launch-spawn-schema'
 import { isCanonicalLowercaseUuid } from '../../../agent-launch/agent-launch-operation-store'
@@ -148,6 +152,12 @@ export const WorktreeCreate = z
     // Host-resolved launch: same one request shape as pty:spawn / terminal.create.
     // When present the host owns resolution and ignores startup*/createdWithAgent.
     agentLaunch: AgentLaunchSpawnRequestSchema.optional(),
+    // Surface-owned agent_started fields for a host-emitted interactive create
+    // (Option A). Sent only for interactive agentLaunch creates; agent_kind +
+    // used_custom_agent are host-derived from the receipt and never accepted here.
+    agentLaunchTelemetry: z
+      .object({ launch_source: launchSourceSchema, request_kind: requestKindSchema })
+      .optional(),
     automationProvenanceRequest: AutomationWorkspaceProvenanceRequest.optional()
   })
   .superRefine((params, ctx) => {

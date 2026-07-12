@@ -33,7 +33,8 @@ const RECEIPT: AgentLaunchReceipt = {
   baseAgent: 'claude',
   notices: [],
   launchToken: 'token-a',
-  catalogRevision: 1
+  catalogRevision: 1,
+  telemetry: { agentKind: 'claude-code', usedCustomAgent: true }
 }
 
 /** A boundary stub exposing the two snapshot accessors the helper reads. `where`

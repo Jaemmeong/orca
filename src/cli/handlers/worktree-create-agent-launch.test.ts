@@ -48,7 +48,8 @@ const LAUNCHED = {
     baseAgent: 'codex' as const,
     notices: [],
     launchToken: 'tok-1',
-    catalogRevision: 1
+    catalogRevision: 1,
+    telemetry: { agentKind: 'codex' as const, usedCustomAgent: false }
   }
 }
 

@@ -40,7 +40,8 @@ const RECEIPT: AgentLaunchReceipt = {
   baseAgent: 'codex',
   notices: [],
   launchToken: 'tok-1',
-  catalogRevision: 1
+  catalogRevision: 1,
+  telemetry: { agentKind: 'codex', usedCustomAgent: true }
 }
 
 function basePlan(overrides: Partial<AgentStartupPlan>): AgentStartupPlan {
@@ -156,5 +157,64 @@ describe('deliverTerminalLaunchPrompt', () => {
 
     expect(followup).not.toHaveBeenCalled()
     expect(draft).not.toHaveBeenCalled()
+  })
+})
+
+// Option A (host-emits-on-create): the create spawn threads the receipt's
+// host-derived kind + used_custom_agent plus the surface fields into the terminal
+// spawn ONLY for an interactive create — the host emits agent_started at the
+// registered PTY. An unattended create passes no surface telemetry and emits
+// nothing.
+describe('spawnWorktreeAgentLaunchTerminal agent_started threading', () => {
+  type SpawnInternals = {
+    spawnWorktreeAgentLaunchTerminal: (
+      worktreeId: string,
+      plan: AgentStartupPlan,
+      receipt: AgentLaunchReceipt,
+      surfaceTelemetry?: { launch_source: string; request_kind: string }
+    ) => Promise<{ terminalId: string }>
+    createTerminal: (worktreeId: string, opts: { telemetry?: unknown }) => Promise<{ handle: string }>
+    deliverWorktreeAgentLaunchPrompt: (...args: unknown[]) => void
+  }
+
+  function armSpawn(runtime: OrcaRuntimeService): {
+    internals: SpawnInternals
+    createTerminal: ReturnType<typeof vi.fn>
+  } {
+    const internals = runtime as unknown as SpawnInternals
+    const createTerminal = vi.fn(async () => ({ handle: 'term-create' }))
+    internals.createTerminal = createTerminal as never
+    // Stub post-ready delivery and receipt bookkeeping side effects so the test
+    // isolates the telemetry-threading decision.
+    internals.deliverWorktreeAgentLaunchPrompt = vi.fn()
+    return { internals, createTerminal }
+  }
+
+  it('threads host kind + used_custom_agent with surface fields for an interactive create', async () => {
+    const runtime = new OrcaRuntimeService()
+    const { internals, createTerminal } = armSpawn(runtime)
+
+    await internals.spawnWorktreeAgentLaunchTerminal('wt-1', basePlan({}), RECEIPT, {
+      launch_source: 'new_workspace_composer',
+      request_kind: 'new'
+    })
+
+    const opts = createTerminal.mock.calls[0]![1] as { telemetry?: unknown }
+    expect(opts.telemetry).toEqual({
+      agent_kind: 'codex',
+      launch_source: 'new_workspace_composer',
+      request_kind: 'new',
+      used_custom_agent: true
+    })
+  })
+
+  it('omits telemetry for an unattended create (no host emit)', async () => {
+    const runtime = new OrcaRuntimeService()
+    const { internals, createTerminal } = armSpawn(runtime)
+
+    await internals.spawnWorktreeAgentLaunchTerminal('wt-2', basePlan({}), RECEIPT)
+
+    const opts = createTerminal.mock.calls[0]![1] as { telemetry?: unknown }
+    expect(opts.telemetry).toBeUndefined()
   })
 })

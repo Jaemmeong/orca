@@ -148,6 +148,9 @@ export const WORKTREE_METHODS: RpcMethod[] = [
           ...(params.agentLaunch
             ? { agentLaunch: params.agentLaunch, agentLaunchClientKind: clientKind }
             : {}),
+          ...(params.agentLaunchTelemetry
+            ? { agentLaunchTelemetry: params.agentLaunchTelemetry }
+            : {}),
           lineage: {
             parentWorkspace: params.parentWorkspace,
             envParentWorkspace: params.envParentWorkspace,

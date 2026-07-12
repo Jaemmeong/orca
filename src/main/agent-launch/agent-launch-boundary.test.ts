@@ -163,8 +163,13 @@ describe('AgentLaunchBoundary.executeAgentLaunch', () => {
       'catalogRevision',
       'launchToken',
       'notices',
-      'requestedAgent'
+      'requestedAgent',
+      'telemetry'
     ])
+    // Oracle 17: the receipt's telemetry marker is client-safe — the base kind
+    // enum and a boolean only, never the requested (possibly custom) id or label.
+    expect(Object.keys(result.receipt.telemetry).sort()).toEqual(['agentKind', 'usedCustomAgent'])
+    expect(typeof result.receipt.telemetry.usedCustomAgent).toBe('boolean')
     const serialized = JSON.stringify(result.receipt)
     expect(serialized).not.toContain('secretexe') // snapshot argv executable
     expect(serialized).not.toContain('topsecret-value') // snapshot agentEnv value

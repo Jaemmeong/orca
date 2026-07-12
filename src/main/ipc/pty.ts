@@ -3274,9 +3274,11 @@ export function registerPtyHandlers(
         }
         // Host-owned agent_started emit for runtime/CLI/worktree-create spawns
         // (kind + used_custom_agent host-derived on the resolved launch upstream).
-        const runtimeAttribution = args.telemetry
-          ? buildAgentStartedAttribution(args.telemetry)
-          : null
+        // A reattach reconnects to an existing process — no second launch event.
+        const runtimeAttribution =
+          args.telemetry && !result.isReattach
+            ? buildAgentStartedAttribution(args.telemetry)
+            : null
         if (runtimeAttribution) {
           track('agent_started', { ...runtimeAttribution, ...getCohortAtEmit() })
         }
@@ -4716,9 +4718,10 @@ export function registerPtyHandlers(
         // vestigial); the shared builder re-validates every field against its
         // closed enum so a malformed/spoofed payload drops the event rather
         // than poisoning it, and `track()` re-runs the schema as a second check.
-        const spawnAttribution = args.telemetry
-          ? buildAgentStartedAttribution(args.telemetry)
-          : null
+        const spawnAttribution =
+          args.telemetry && !result.isReattach
+            ? buildAgentStartedAttribution(args.telemetry)
+            : null
         if (spawnAttribution) {
           track('agent_started', { ...spawnAttribution, ...getCohortAtEmit() })
         }

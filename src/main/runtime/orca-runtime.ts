@@ -14557,6 +14557,15 @@ export class OrcaRuntimeService {
     // runs the two-stage transactional launch.
     agentLaunch?: AgentLaunchSpawnRequest
     agentLaunchClientKind?: AuthenticatedClientKind
+    // Surface-owned agent_started telemetry for a host-emitted interactive create
+    // (Option A: the host emits from the validated receipt, not the renderer).
+    // agent_kind + used_custom_agent are host-derived from the receipt — only the
+    // surface fields cross. Omitted for automation/orchestration/background creates,
+    // which must not emit agent_started (omission = no host emit).
+    agentLaunchTelemetry?: Pick<
+      NonNullable<WorktreeStartupLaunch['telemetry']>,
+      'launch_source' | 'request_kind'
+    >
   }): Promise<CreatedWorktreeResult> {
     if (!this.store) {
       throw new Error('runtime_unavailable')
@@ -14678,7 +14687,13 @@ export class OrcaRuntimeService {
           const outcome = await agentLaunchFinish.finish(
             worktree.id,
             { repoPath: repo.path, worktreePath: worktree.path },
-            (plan, receipt) => this.spawnWorktreeAgentLaunchTerminal(worktree.id, plan, receipt)
+            (plan, receipt) =>
+              this.spawnWorktreeAgentLaunchTerminal(
+                worktree.id,
+                plan,
+                receipt,
+                args.agentLaunchTelemetry
+              )
           )
           agentLaunchResult = this.toWorktreeAgentLaunchResult(outcome)
           didSpawnStartup = outcome.status === 'launched'
@@ -14778,7 +14793,12 @@ export class OrcaRuntimeService {
             // tab inside createManagedRemoteWorktree, so this spawn cannot wrap the
             // wait-for-agent marker (#6298) the local-git/desktop-IPC paths apply.
             (plan, receipt) =>
-              this.spawnWorktreeAgentLaunchTerminal(result.worktree.id, plan, receipt)
+              this.spawnWorktreeAgentLaunchTerminal(
+                result.worktree.id,
+                plan,
+                receipt,
+                args.agentLaunchTelemetry
+              )
           )
           remoteAgentLaunchResult = this.toWorktreeAgentLaunchResult(outcome)
         } catch (err) {
@@ -18312,7 +18332,14 @@ export class OrcaRuntimeService {
   private async spawnWorktreeAgentLaunchTerminal(
     worktreeId: string,
     plan: AgentStartupPlan,
-    receipt: AgentLaunchReceipt
+    receipt: AgentLaunchReceipt,
+    // Present only for an interactive create: the host emits agent_started from the
+    // receipt's host-derived kind/marker plus these surface fields. Absent for
+    // automation/orchestration/background launches, which emit nothing.
+    surfaceTelemetry?: Pick<
+      NonNullable<WorktreeStartupLaunch['telemetry']>,
+      'launch_source' | 'request_kind'
+    >
   ): Promise<{ terminalId: string }> {
     const terminal = await this.createTerminal(`id:${worktreeId}`, {
       command: plan.launchCommand,
@@ -18322,6 +18349,16 @@ export class OrcaRuntimeService {
       launchToken: receipt.launchToken,
       ...(plan.startupCommandDelivery
         ? { startupCommandDelivery: plan.startupCommandDelivery }
+        : {}),
+      ...(surfaceTelemetry
+        ? {
+            telemetry: {
+              agent_kind: receipt.telemetry.agentKind,
+              launch_source: surfaceTelemetry.launch_source,
+              request_kind: surfaceTelemetry.request_kind,
+              used_custom_agent: receipt.telemetry.usedCustomAgent
+            }
+          }
         : {})
     })
     // Main-private terminal -> receipt attribution so a settled `launched` retry
