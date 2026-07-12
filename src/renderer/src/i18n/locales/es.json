@@ -13245,6 +13245,11 @@
       },
       "forgotten": "You forgot this launch, so it won't run again."
     },
+    "forgetConfirm": {
+      "title": "Forget this launch?",
+      "warning": "Orca cannot reach the terminal host. Forgetting does not stop the remote process; it may still be running.",
+      "confirmLabel": "Forget launch"
+    },
     "requestError": {
       "idempotencyConflict": "Este inicio ya está en curso.",
       "staleFailure": "Este inicio ya se resolvió. Actualiza e inténtalo de nuevo.",

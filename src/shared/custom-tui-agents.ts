@@ -101,3 +101,17 @@ export function requireBuiltInTuiAgentConfig(agent: TuiAgent): TuiAgentConfig {
   }
   return TUI_AGENT_CONFIG[agent]
 }
+
+/** Base accessor for the built-in-only static config (oracle 16): resolve an
+ *  agent id — built-in OR custom — to its base harness's TuiAgentConfig. A custom
+ *  agent reads its base's config; an unresolvable or tombstoned-without-base id
+ *  returns null. Callers must never index TUI_AGENT_CONFIG with a raw TuiAgent,
+ *  because a custom id would silently yield undefined (noImplicitAny hides it). */
+export function resolveTuiAgentConfig(
+  agent: TuiAgent | null | undefined,
+  customTuiAgents?: readonly CustomTuiAgent[] | null,
+  deletedCustomTuiAgents?: readonly DeletedCustomTuiAgent[] | null
+): TuiAgentConfig | null {
+  const base = resolveTuiAgentBaseAgent(agent, customTuiAgents, deletedCustomTuiAgents)
+  return base ? TUI_AGENT_CONFIG[base] : null
+}

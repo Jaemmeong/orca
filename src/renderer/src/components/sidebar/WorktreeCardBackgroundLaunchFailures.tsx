@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
+import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { WorktreeAgentLaunchFailure } from './WorktreeAgentLaunchFailure'
+import { forgetLaunchConfirmation } from '@/lib/agent-launch-recovery-action-copy'
 import {
   resolveBackgroundAgentLaunchRecovery,
   type BackgroundAgentLaunchRecovery
@@ -55,6 +57,7 @@ export function WorktreeCardBackgroundLaunchFailures({
   const forgetBackgroundAgentLaunch = useAppStore((s) => s.forgetBackgroundAgentLaunch)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const openModal = useAppStore((s) => s.openModal)
+  const confirm = useConfirmationDialog()
   const [busyAttemptIds, setBusyAttemptIds] = useState<ReadonlySet<string>>(() => new Set())
 
   const setBusy = useCallback((attemptId: string, busy: boolean) => {
@@ -90,6 +93,11 @@ export function WorktreeCardBackgroundLaunchFailures({
         return
       }
       if (id === 'forget-launch') {
+        // Forget cannot stop a possibly-live remote process (plan :498), so it is
+        // gated behind an explicit destructive confirmation carrying that warning.
+        if (!(await confirm(forgetLaunchConfirmation()))) {
+          return
+        }
         // The attempt's operation id is the anti-race guard the host requires; it
         // is always present on a background attempt DTO (unlike the worktree card,
         // whose guard rides the possibly-reconciled pendingAgentLaunch).
@@ -123,6 +131,7 @@ export function WorktreeCardBackgroundLaunchFailures({
     },
     [
       worktreeId,
+      confirm,
       setBusy,
       retryBackgroundAgentLaunch,
       forgetBackgroundAgentLaunch,

@@ -223,6 +223,7 @@ import {
   isTuiAgent,
   TUI_AGENT_CONFIG
 } from '../../shared/tui-agent-config'
+import { resolveTuiAgentConfig } from '../../shared/custom-tui-agents'
 import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
 import { detectInstalledAgentsWithShellPathHydration, detectRemoteAgents } from '../ipc/preflight'
 import {
@@ -14160,8 +14161,16 @@ export class OrcaRuntimeService {
     }
   }
 
+  // Custom ids carry no static config; a custom agent's base harness owns its
+  // trust/startup behavior. Resolve to the base config before reading it so a
+  // custom (or tombstoned) id never reads undefined from the built-in registry.
+  private resolveAgentConfigForRegistry(agent: TuiAgent): TuiAgentConfig | null {
+    const settings = this.store?.getSettings() as GlobalSettings | undefined
+    return resolveTuiAgentConfig(agent, settings?.customTuiAgents, settings?.deletedCustomTuiAgents)
+  }
+
   private markLocalWorkspaceTrustedForAgent(agent: TuiAgent, workspacePath: string): void {
-    const preset = TUI_AGENT_CONFIG[agent].preflightTrust
+    const preset = this.resolveAgentConfigForRegistry(agent)?.preflightTrust
     if (!preset) {
       return
     }
@@ -14183,7 +14192,8 @@ export class OrcaRuntimeService {
     connectionId: string,
     workspacePath: string
   ): Promise<void> {
-    const preset = TUI_AGENT_CONFIG[agent].preflightTrust
+    const base = this.resolveAgentBaseForRegistry(agent)
+    const preset = base ? TUI_AGENT_CONFIG[base].preflightTrust : undefined
     if (!preset) {
       return
     }
@@ -14438,8 +14448,10 @@ export class OrcaRuntimeService {
     if (!ptyId) {
       return Promise.resolve(null)
     }
+    const base = this.resolveAgentBaseForRegistry(agent)
     const readySignal =
-      TUI_AGENT_CONFIG[agent].draftPasteReadySignal ?? 'render-quiet-after-bracketed-paste'
+      (base ? TUI_AGENT_CONFIG[base].draftPasteReadySignal : undefined) ??
+      'render-quiet-after-bracketed-paste'
     return new Promise<string | null>((resolve) => {
       let settled = false
       const scanner = createDraftPasteReadyScanner(readySignal)

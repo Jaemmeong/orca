@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
+import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { AgentLaunchRecoveryCard } from './AgentLaunchRecoveryCard'
+import { forgetLaunchConfirmation } from '@/lib/agent-launch-recovery-action-copy'
 import {
   AGENTS_SETTINGS_ACTIONS,
   RETRY_SAME_ACTIONS
@@ -29,6 +31,7 @@ export function AgentLaunchRecoveryCardContainer({
   const forgetWorktreeAgentLaunch = useAppStore((s) => s.forgetWorktreeAgentLaunch)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const openModal = useAppStore((s) => s.openModal)
+  const confirm = useConfirmationDialog()
   const [busy, setBusy] = useState(false)
 
   const onAction = useCallback(
@@ -54,6 +57,11 @@ export function AgentLaunchRecoveryCardContainer({
         // missing one means reconciliation already cleared the pending, so there
         // is nothing to forget.
         if (!pendingOperationId) {
+          return
+        }
+        // Forget cannot stop a possibly-live remote process (plan :498), so it is
+        // gated behind an explicit destructive confirmation carrying that warning.
+        if (!(await confirm(forgetLaunchConfirmation()))) {
           return
         }
         setBusy(true)
@@ -86,6 +94,7 @@ export function AgentLaunchRecoveryCardContainer({
       failure,
       pendingOperationId,
       worktreeId,
+      confirm,
       retryWorktreeAgentLaunch,
       forgetWorktreeAgentLaunch,
       openSettingsTarget,

@@ -20,13 +20,18 @@ const worktreeBox = vi.hoisted(() => ({ worktree: null as WorktreeShape | null }
 const mocks = vi.hoisted(() => ({
   retryWorktreeAgentLaunch: vi.fn(),
   forgetWorktreeAgentLaunch: vi.fn(),
-  openSettingsTarget: vi.fn()
+  openSettingsTarget: vi.fn(),
+  confirm: vi.fn()
 }))
 
 vi.mock('@/store', () => ({
   useAppStore: Object.assign((selector: (state: unknown) => unknown) => selector(storeBox.state), {
     getState: () => storeBox.state
   })
+}))
+
+vi.mock('@/components/confirmation-dialog', () => ({
+  useConfirmationDialog: () => mocks.confirm
 }))
 
 vi.mock('@/store/selectors', () => ({
@@ -66,6 +71,7 @@ beforeEach(() => {
   }
   mocks.retryWorktreeAgentLaunch.mockResolvedValue({ status: 'launched', receipt: {} })
   mocks.forgetWorktreeAgentLaunch.mockResolvedValue({ status: 'forgotten' })
+  mocks.confirm.mockResolvedValue(true)
   worktreeBox.worktree = null
   storeBox.state = {
     retryWorktreeAgentLaunch: mocks.retryWorktreeAgentLaunch,
@@ -100,7 +106,7 @@ describe('AgentLaunchRecoveryCardContainer', () => {
     })
   })
 
-  it('forgets an unknown launch using the pending operation id as the guard', async () => {
+  it('forgets an unknown launch after the destructive confirmation, using the pending operation id as the guard', async () => {
     worktreeBox.worktree = {
       agentLaunchFailure: failure('launch_state_unknown'),
       pendingAgentLaunch: { operationId: 'op-3', requestedAgent: undefined as never }
@@ -109,18 +115,40 @@ describe('AgentLaunchRecoveryCardContainer', () => {
     await act(async () => {
       buttonByLabel('Forget launch…').click()
     })
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        confirmVariant: 'destructive',
+        description:
+          'Orca cannot reach the terminal host. Forgetting does not stop the remote process; it may still be running.'
+      })
+    )
     expect(mocks.forgetWorktreeAgentLaunch).toHaveBeenCalledExactlyOnceWith({
       worktreeId: WORKTREE_ID,
       expectedOperationId: 'op-3'
     })
   })
 
-  it('does not forget when no pending operation id survives reconciliation', async () => {
+  it('does not forget when the destructive confirmation is declined', async () => {
+    mocks.confirm.mockResolvedValue(false)
+    worktreeBox.worktree = {
+      agentLaunchFailure: failure('launch_state_unknown'),
+      pendingAgentLaunch: { operationId: 'op-3', requestedAgent: undefined as never }
+    }
+    await render()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.confirm).toHaveBeenCalledOnce()
+    expect(mocks.forgetWorktreeAgentLaunch).not.toHaveBeenCalled()
+  })
+
+  it('does not confirm or forget when no pending operation id survives reconciliation', async () => {
     worktreeBox.worktree = { agentLaunchFailure: failure('launch_state_unknown') }
     await render()
     await act(async () => {
       buttonByLabel('Forget launch…').click()
     })
+    expect(mocks.confirm).not.toHaveBeenCalled()
     expect(mocks.forgetWorktreeAgentLaunch).not.toHaveBeenCalled()
   })
 

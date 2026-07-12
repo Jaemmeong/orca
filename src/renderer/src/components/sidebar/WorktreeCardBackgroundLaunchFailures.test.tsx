@@ -19,13 +19,18 @@ const mocks = vi.hoisted(() => ({
   retryBackgroundAgentLaunch: vi.fn(),
   forgetBackgroundAgentLaunch: vi.fn(),
   openSettingsTarget: vi.fn(),
-  openModal: vi.fn()
+  openModal: vi.fn(),
+  confirm: vi.fn()
 }))
 
 vi.mock('@/store', () => ({
   useAppStore: Object.assign((selector: (state: unknown) => unknown) => selector(storeBox.state), {
     getState: () => storeBox.state
   })
+}))
+
+vi.mock('@/components/confirmation-dialog', () => ({
+  useConfirmationDialog: () => mocks.confirm
 }))
 
 vi.mock('@/store/selectors', () => ({
@@ -83,6 +88,7 @@ beforeEach(() => {
   }
   mocks.retryBackgroundAgentLaunch.mockResolvedValue({ status: 'launched', receipt: {} })
   mocks.forgetBackgroundAgentLaunch.mockResolvedValue({ status: 'forgotten' })
+  mocks.confirm.mockResolvedValue(true)
   worktreeBox.worktree = null
   storeBox.state = {
     // The container guards a missing worktreesByRepo slice (partial sibling-suite
@@ -147,7 +153,7 @@ describe('WorktreeCardBackgroundLaunchFailures', () => {
     })
   })
 
-  it('forgets an unknown attempt using its operation id as the guard', async () => {
+  it('forgets an unknown attempt after the destructive confirmation, using its operation id as the guard', async () => {
     worktreeBox.worktree = {
       backgroundAgentLaunches: [
         attempt({ state: 'pending', failure: failure('launch_state_unknown') })
@@ -157,11 +163,33 @@ describe('WorktreeCardBackgroundLaunchFailures', () => {
     await act(async () => {
       buttonByLabel('Forget launch…').click()
     })
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        confirmVariant: 'destructive',
+        description:
+          'Orca cannot reach the terminal host. Forgetting does not stop the remote process; it may still be running.'
+      })
+    )
     expect(mocks.forgetBackgroundAgentLaunch).toHaveBeenCalledExactlyOnceWith({
       attemptId: 'attempt-1',
       worktreeId: WORKTREE_ID,
       expectedOperationId: 'op-9'
     })
+  })
+
+  it('does not forget an unknown attempt when the destructive confirmation is declined', async () => {
+    mocks.confirm.mockResolvedValue(false)
+    worktreeBox.worktree = {
+      backgroundAgentLaunches: [
+        attempt({ state: 'pending', failure: failure('launch_state_unknown') })
+      ]
+    }
+    await render()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.confirm).toHaveBeenCalledOnce()
+    expect(mocks.forgetBackgroundAgentLaunch).not.toHaveBeenCalled()
   })
 
   it('routes reconnect on an unknown attempt to the ssh settings pane', async () => {

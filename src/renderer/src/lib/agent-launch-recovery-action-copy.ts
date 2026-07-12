@@ -57,3 +57,23 @@ export function recoveryActionLabel(id: AgentLaunchRecoveryActionId): string {
 export function isDestructiveRecoveryAction(id: AgentLaunchRecoveryActionId): boolean {
   return id === 'forget-launch'
 }
+
+/** Destructive Forget-launch confirmation copy (plan :498): forgetting frees
+ *  Orca's bookkeeping but cannot stop a possibly-live remote process, so the user
+ *  confirms with that warning before an unknown launch is forgotten. */
+export function forgetLaunchConfirmation(): {
+  title: string
+  description: string
+  confirmLabel: string
+  confirmVariant: 'destructive'
+} {
+  return {
+    title: translate('agentLaunch.forgetConfirm.title', 'Forget this launch?'),
+    description: translate(
+      'agentLaunch.forgetConfirm.warning',
+      'Orca cannot reach the terminal host. Forgetting does not stop the remote process; it may still be running.'
+    ),
+    confirmLabel: translate('agentLaunch.forgetConfirm.confirmLabel', 'Forget launch'),
+    confirmVariant: 'destructive'
+  }
+}
