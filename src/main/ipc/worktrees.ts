@@ -980,6 +980,8 @@ export function registerWorktreeHandlers(
   ipcMain.removeHandler('worktrees:retryBackgroundAgentLaunch')
   ipcMain.removeHandler('worktrees:forgetBackgroundAgentLaunch')
   ipcMain.removeHandler('worktrees:pendingAgentLaunchSummary')
+  ipcMain.removeHandler('worktrees:unknownAgentLaunchSiblingCount')
+  ipcMain.removeHandler('worktrees:forgetUnknownAgentLaunchSiblings')
   ipcMain.removeHandler('hooks:check')
   ipcMain.removeHandler('hooks:inspectSetupScriptImports')
   ipcMain.removeHandler('hooks:createIssueCommandRunner')
@@ -2237,6 +2239,24 @@ export function registerWorktreeHandlers(
   ipcMain.handle(
     'worktrees:pendingAgentLaunchSummary',
     async (): Promise<PendingAgentLaunchSummary> => runtime.pendingAgentLaunchSummary(undefined)
+  )
+
+  // Local desktop equivalent of worktree.unknownAgentLaunchSiblingCount. A local
+  // invoke is an authenticated local principal (clientKind undefined); the runtime
+  // scopes siblings to that principal and the anchor's disconnected remote host.
+  ipcMain.handle(
+    'worktrees:unknownAgentLaunchSiblingCount',
+    async (_event, args: { worktreeId: string }): Promise<{ count: number }> => ({
+      count: await runtime.unknownWorktreeAgentLaunchSiblingCount(`id:${args.worktreeId}`, undefined)
+    })
+  )
+
+  // Local desktop equivalent of worktree.forgetUnknownAgentLaunchSiblings. Never kills
+  // or spawns; frees only each sibling's own reservation on the disconnected host.
+  ipcMain.handle(
+    'worktrees:forgetUnknownAgentLaunchSiblings',
+    async (_event, args: { worktreeId: string }): Promise<{ forgottenCount: number }> =>
+      runtime.forgetUnknownWorktreeAgentLaunchSiblings(`id:${args.worktreeId}`, undefined)
   )
 
   ipcMain.handle(

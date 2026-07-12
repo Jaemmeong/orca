@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   forgetLaunchConfirmation,
+  forgetSiblingsOptInLabel,
   isDestructiveRecoveryAction
 } from './agent-launch-recovery-action-copy'
 
@@ -13,6 +14,20 @@ describe('forgetLaunchConfirmation', () => {
     )
     expect(options.title).toBe('Forget this launch?')
     expect(options.confirmLabel).toBe('Forget launch')
+  })
+})
+
+describe('forgetSiblingsOptInLabel', () => {
+  it('uses the singular launch phrasing for a single sibling', () => {
+    expect(forgetSiblingsOptInLabel(1, 'devbox')).toBe(
+      'Also forget 1 other stranded launch on devbox.'
+    )
+  })
+
+  it('uses the plural phrasing and interpolates the count and host for many siblings', () => {
+    expect(forgetSiblingsOptInLabel(3, 'devbox')).toBe(
+      'Also forget 3 other stranded launches on devbox.'
+    )
   })
 })
 

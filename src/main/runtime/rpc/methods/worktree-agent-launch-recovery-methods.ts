@@ -9,9 +9,11 @@ import { defineMethod, type RpcMethod } from '../core'
 import {
   WorktreeForgetAgentLaunch,
   WorktreeForgetBackgroundAgentLaunch,
+  WorktreeForgetUnknownAgentLaunchSiblings,
   WorktreePendingAgentLaunchSummary,
   WorktreeRetryAgentLaunch,
-  WorktreeRetryBackgroundAgentLaunch
+  WorktreeRetryBackgroundAgentLaunch,
+  WorktreeUnknownAgentLaunchSiblingCount
 } from './worktree-schemas'
 
 export const WORKTREE_AGENT_LAUNCH_RECOVERY_METHODS: RpcMethod[] = [
@@ -79,5 +81,22 @@ export const WORKTREE_AGENT_LAUNCH_RECOVERY_METHODS: RpcMethod[] = [
     // are secret-free and carry no token.
     handler: async (_params, { runtime, clientKind }) =>
       runtime.pendingAgentLaunchSummary(clientKind)
+  }),
+  defineMethod({
+    name: 'worktree.unknownAgentLaunchSiblingCount',
+    params: WorktreeUnknownAgentLaunchSiblingCount,
+    // Lazy preflight for the ":498 Also forget N other stranded launches" affordance;
+    // clientKind scopes the principal, siblings are host-derived, no secrets cross.
+    handler: async (params, { runtime, clientKind }) => ({
+      count: await runtime.unknownWorktreeAgentLaunchSiblingCount(params.worktree, clientKind)
+    })
+  }),
+  defineMethod({
+    name: 'worktree.forgetUnknownAgentLaunchSiblings',
+    params: WorktreeForgetUnknownAgentLaunchSiblings,
+    // Same-principal bulk forget on the anchor's disconnected host. Never kills or
+    // spawns; each sibling settles only its own reservation and self-guards.
+    handler: async (params, { runtime, clientKind }) =>
+      runtime.forgetUnknownWorktreeAgentLaunchSiblings(params.worktree, clientKind)
   })
 ]

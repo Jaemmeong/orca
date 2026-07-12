@@ -1525,6 +1525,14 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
       }),
     pendingAgentLaunchSummary: async () =>
       callRuntimeResult<PendingAgentLaunchSummary>('worktree.pendingAgentLaunchSummary', {}),
+    unknownAgentLaunchSiblingCount: async ({ worktreeId }) =>
+      callRuntimeResult<{ count: number }>('worktree.unknownAgentLaunchSiblingCount', {
+        worktree: toRuntimeWorktreeSelector(worktreeId)
+      }),
+    forgetUnknownAgentLaunchSiblings: async ({ worktreeId }) =>
+      callRuntimeResult<{ forgottenCount: number }>('worktree.forgetUnknownAgentLaunchSiblings', {
+        worktree: toRuntimeWorktreeSelector(worktreeId)
+      }),
     onChanged: () => noopUnsubscribe,
     onBaseStatus: () => noopUnsubscribe,
     onRemoteBranchConflict: () => noopUnsubscribe

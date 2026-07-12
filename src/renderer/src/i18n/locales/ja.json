@@ -13253,7 +13253,9 @@
       "title": "Forget this launch?",
       "warning": "Orca cannot reach the terminal host. Forgetting does not stop the remote process; it may still be running.",
       "confirmLabel": "Forget launch",
-      "failed": "Couldn't forget this launch. Try again."
+      "failed": "Couldn't forget this launch. Try again.",
+      "alsoForgetSibling": "Also forget 1 other stranded launch on {{host}}.",
+      "alsoForgetSiblings": "Also forget {{count}} other stranded launches on {{host}}."
     },
     "requestError": {
       "idempotencyConflict": "この起動はすでに進行中です。",

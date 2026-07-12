@@ -724,6 +724,12 @@ const api = {
 
     pendingAgentLaunchSummary: () => ipcRenderer.invoke('worktrees:pendingAgentLaunchSummary'),
 
+    unknownAgentLaunchSiblingCount: (args) =>
+      ipcRenderer.invoke('worktrees:unknownAgentLaunchSiblingCount', args),
+
+    forgetUnknownAgentLaunchSiblings: (args) =>
+      ipcRenderer.invoke('worktrees:forgetUnknownAgentLaunchSiblings', args),
+
     onChanged: (
       callback: (data: {
         repoId: string

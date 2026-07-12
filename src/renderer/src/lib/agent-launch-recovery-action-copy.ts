@@ -77,3 +77,22 @@ export function forgetLaunchConfirmation(): {
     confirmVariant: 'destructive'
   }
 }
+
+/** Opt-in offered on the Forget confirmation when the same authenticated principal
+ *  has other unknown launches stranded on the same disconnected host (plan :498).
+ *  Selecting it forgets those siblings alongside this one. Caller supplies the
+ *  host-side sibling count and the target-host display name. */
+export function forgetSiblingsOptInLabel(count: number, hostName: string): string {
+  if (count === 1) {
+    return translate(
+      'agentLaunch.forgetConfirm.alsoForgetSibling',
+      'Also forget 1 other stranded launch on {{host}}.',
+      { host: hostName }
+    )
+  }
+  return translate(
+    'agentLaunch.forgetConfirm.alsoForgetSiblings',
+    'Also forget {{count}} other stranded launches on {{host}}.',
+    { count, host: hostName }
+  )
+}

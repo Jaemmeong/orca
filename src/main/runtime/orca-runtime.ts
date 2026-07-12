@@ -783,6 +783,7 @@ import {
 } from '../agent-launch/agent-launch-vault-resume'
 import type {
   AgentLaunchFailure,
+  AgentLaunchIntentKind,
   AgentLaunchNoticeCode,
   AgentLaunchReceipt,
   AgentLaunchRequestError,
@@ -1498,6 +1499,17 @@ export function worktreeCreateRpcLaunchIntent(clientKind: AuthenticatedClientKin
 
 // Why: long enough for a phone to reconnect and retry a create whose response
 // was lost, short enough that an intentional later re-resume forks fresh.
+// Intents whose stranded launches recover through their OWN owner records
+// (automation run, orchestration dispatch, background attempt) and therefore
+// NEVER participate in same-principal bulk forget (§U9 ledger #15 / plan :498),
+// even when they share the principal and disconnected host. Enforced inside the
+// sibling enumeration, not merely filtered by the caller.
+const BULK_FORGET_EXCLUDED_INTENTS: ReadonlySet<AgentLaunchIntentKind> = new Set([
+  'automation',
+  'orchestration',
+  'background'
+])
+
 const MOBILE_TERMINAL_CREATE_RESULT_TTL_MS = 60_000
 const FOREGROUND_AGENT_WRAPPER_RETRY_INTERVAL_MS = 150
 const FOREGROUND_AGENT_WRAPPER_RETRY_TIMEOUT_MS = 6_500
@@ -18050,12 +18062,7 @@ export class OrcaRuntimeService {
       : { kind: 'local' }
     const rows = getHostAgentLaunchBoundary().capacitySummaryFor(principal)
     const store = this.requireStore()
-    const liveTokens = new Set<string>()
-    for (const pty of this.ptysById.values()) {
-      if (pty.launchToken) {
-        liveTokens.add(pty.launchToken)
-      }
-    }
+    const liveTokens = this.collectLiveLaunchTokens()
     return buildPendingAgentLaunchSummary(rows, {
       // A local terminal dies with main, so no token match is authoritative
       // 'absent'; a remote host may merely be unreachable, so never claim a false
@@ -18073,6 +18080,121 @@ export class OrcaRuntimeService {
         store.getWorktreeMeta(row.scope) ? { kind: 'worktree', worktreeId: row.scope } : undefined,
       sshLabelFor: (targetId) => store.getSshTarget(targetId)?.label
     })
+  }
+
+  /** Launch tokens owned by a live local PTY. A token here means the launch's
+   *  terminal is present, so it is NOT stranded and must never be bulk-forgotten. */
+  private collectLiveLaunchTokens(): Set<string> {
+    const liveTokens = new Set<string>()
+    for (const pty of this.ptysById.values()) {
+      if (pty.launchToken) {
+        liveTokens.add(pty.launchToken)
+      }
+    }
+    return liveTokens
+  }
+
+  /** The anchor launch's execution host, but ONLY when it is a disconnected REMOTE
+   *  provider. Bulk forget spans a single disconnected remote host (plan :498 never
+   *  clears a local-host reservation), so a local or unknown anchor has no siblings. */
+  private resolveBulkForgetAnchorHost(
+    clientKind: AuthenticatedClientKind,
+    anchorScope: string
+  ): AgentLaunchExecutionHostId | null {
+    const principal: AdmissionPrincipal = clientKind
+      ? { kind: 'remote', id: clientKind }
+      : { kind: 'local' }
+    const anchorRow = getHostAgentLaunchBoundary()
+      .capacitySummaryFor(principal)
+      .find((row) => row.scope === anchorScope)
+    if (!anchorRow || anchorRow.executionHostId === 'local') {
+      return null
+    }
+    return anchorRow.executionHostId
+  }
+
+  /** Same-principal worktree launches stranded in launch_state_unknown on ONE
+   *  disconnected remote host — the eligible siblings for bulk forget (§U9 ledger
+   *  #15). Every guard is applied here, not by the caller: same principal (the
+   *  boundary's own filter), same remote host, a worktree/direct-interactive intent
+   *  (automation/orchestration/background are structurally excluded), no live
+   *  terminal, and a durable launch_state_unknown failure. Returns the sibling
+   *  worktree scopes, excluding the anchor. */
+  private enumerateBulkForgetWorktreeSiblings(
+    clientKind: AuthenticatedClientKind,
+    opts: { executionHostId: AgentLaunchExecutionHostId; excludeScope: string }
+  ): string[] {
+    const principal: AdmissionPrincipal = clientKind
+      ? { kind: 'remote', id: clientKind }
+      : { kind: 'local' }
+    const store = this.requireStore()
+    const liveTokens = this.collectLiveLaunchTokens()
+    return getHostAgentLaunchBoundary()
+      .capacitySummaryFor(principal)
+      .filter(
+        (row) =>
+          row.scope !== opts.excludeScope &&
+          row.executionHostId === opts.executionHostId &&
+          !BULK_FORGET_EXCLUDED_INTENTS.has(row.intent) &&
+          !liveTokens.has(row.launchToken) &&
+          store.getWorktreeMeta(row.scope)?.agentLaunchFailure?.code === 'launch_state_unknown'
+      )
+      .map((row) => row.scope)
+  }
+
+  /** Count of same-principal stranded siblings on the anchor's disconnected host —
+   *  the ":498 Also forget N other stranded launches on {host}" preflight. Lazy: the
+   *  renderer calls it only when the confirm dialog opens, keeping the sibling join
+   *  off the hot pending-summary path. */
+  async unknownWorktreeAgentLaunchSiblingCount(
+    anchorSelector: string,
+    clientKind: AuthenticatedClientKind
+  ): Promise<number> {
+    const anchor = await this.resolveWorktreeSelector(anchorSelector)
+    const executionHostId = this.resolveBulkForgetAnchorHost(clientKind, anchor.id)
+    if (!executionHostId) {
+      return 0
+    }
+    return this.enumerateBulkForgetWorktreeSiblings(clientKind, {
+      executionHostId,
+      excludeScope: anchor.id
+    }).length
+  }
+
+  /** Forget every eligible same-principal sibling on the anchor's disconnected host.
+   *  Each sibling settles through the SAME single-forget reconciler — which re-guards
+   *  its own operation id and launch_state_unknown gate, so a sibling that changed
+   *  under us self-rejects and is simply not counted. Frees only each launch's own
+   *  reservation; never kills or spawns (the remote processes may still run). */
+  async forgetUnknownWorktreeAgentLaunchSiblings(
+    anchorSelector: string,
+    clientKind: AuthenticatedClientKind
+  ): Promise<{ forgottenCount: number }> {
+    const anchor = await this.resolveWorktreeSelector(anchorSelector)
+    const executionHostId = this.resolveBulkForgetAnchorHost(clientKind, anchor.id)
+    if (!executionHostId) {
+      return { forgottenCount: 0 }
+    }
+    const siblingScopes = this.enumerateBulkForgetWorktreeSiblings(clientKind, {
+      executionHostId,
+      excludeScope: anchor.id
+    })
+    let forgottenCount = 0
+    for (const scope of siblingScopes) {
+      const pending = getHostAgentLaunchOperationStore().findPendingByScope(scope)
+      if (!pending) {
+        continue
+      }
+      const result = await this.forgetUnknownWorktreeAgentLaunch(
+        `id:${scope}`,
+        { expectedOperationId: pending.operationId, clientMutationId: randomUUID() },
+        clientKind
+      )
+      if (result.status === 'forgotten') {
+        forgottenCount += 1
+      }
+    }
+    return { forgottenCount }
   }
 
   /** The worktree launch-card writer for reconciliation. settleLaunched clears the

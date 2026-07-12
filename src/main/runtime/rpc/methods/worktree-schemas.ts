@@ -336,3 +336,10 @@ export const WorktreeForgetBackgroundAgentLaunch = z.object({
 // The capacity-recovery summary takes no params: the principal is scoped from the
 // authenticated clientKind, never from client JSON, so there is nothing to carry.
 export const WorktreePendingAgentLaunchSummary = z.object({})
+
+// Same-principal bulk forget (§U9 ledger #15 / plan :498). Both carry only the
+// anchor worktree selector: the principal is scoped from the authenticated
+// clientKind, the disconnected host + eligible siblings are derived host-side, and
+// no per-launch operation id fits a bulk op — every sibling self-guards internally.
+export const WorktreeUnknownAgentLaunchSiblingCount = WorktreeSelector
+export const WorktreeForgetUnknownAgentLaunchSiblings = WorktreeSelector

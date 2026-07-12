@@ -1319,6 +1319,14 @@ export type PreloadApi = {
      *  host to the authenticated principal. Never carries a prompt, custom id/label,
      *  argv, path, token, or env. */
     pendingAgentLaunchSummary: () => Promise<PendingAgentLaunchSummary>
+    /** Lazy preflight count of same-principal stranded siblings on the anchor's
+     *  disconnected host (the ":498 Also forget N other stranded launches" copy). */
+    unknownAgentLaunchSiblingCount: (args: { worktreeId: string }) => Promise<{ count: number }>
+    /** Same-principal bulk forget on the anchor's disconnected host. Never kills or
+     *  spawns; frees only each sibling's own reservation. */
+    forgetUnknownAgentLaunchSiblings: (args: {
+      worktreeId: string
+    }) => Promise<{ forgottenCount: number }>
     onChanged: (callback: (data: { repoId: string }) => void) => () => void
     onBaseStatus: (callback: (data: WorktreeBaseStatusEvent) => void) => () => void
     onRemoteBranchConflict: (
