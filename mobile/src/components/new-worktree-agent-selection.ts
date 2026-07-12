@@ -1,6 +1,10 @@
-import type { TuiAgent } from '../../../src/shared/types'
-import { MOBILE_AGENT_CATALOG } from '../tasks/mobile-agent-catalog'
+import type { BuiltInTuiAgent, TuiAgent } from '../../../src/shared/types'
+import type { AgentCatalogValue } from '../transport/agent-catalog-sync'
 import { isMobileTuiAgentEnabled } from '../tasks/mobile-tui-agents'
+import {
+  buildMobileAgentPickerRows,
+  type MobileAgentPickerOptions
+} from '../tasks/mobile-agent-catalog-projection'
 import { pickWorkspaceAgent } from '../tasks/workspace-agent-selection'
 
 export type NewWorktreeRuntimeSettings = {
@@ -12,9 +16,29 @@ export type NewWorktreeAgentOption = {
   id: TuiAgent | '__blank__'
   label: string
   faviconDomain?: string
+  isCustom?: boolean
+  // Present only on custom rows: the base harness whose icon the row shows.
+  baseAgent?: BuiltInTuiAgent
 }
 
-export const NEW_WORKTREE_AGENT_OPTIONS: NewWorktreeAgentOption[] = MOBILE_AGENT_CATALOG
+/** Picker options sourced from the host's env-free synced catalog, falling back to
+ *  the static built-in rows when no snapshot is passed. Customs stay off until the
+ *  identity-launch flip enables them (see `MobileAgentPickerOptions`). */
+export function buildNewWorktreeAgentOptions(
+  snapshot: AgentCatalogValue | null,
+  options: MobileAgentPickerOptions = {}
+): NewWorktreeAgentOption[] {
+  return buildMobileAgentPickerRows(snapshot, options).map((row) => ({
+    id: row.id,
+    label: row.label,
+    ...(row.faviconDomain ? { faviconDomain: row.faviconDomain } : {}),
+    isCustom: row.isCustom,
+    ...(row.baseAgent ? { baseAgent: row.baseAgent } : {})
+  }))
+}
+
+export const NEW_WORKTREE_AGENT_OPTIONS: NewWorktreeAgentOption[] =
+  buildNewWorktreeAgentOptions(null)
 
 export const NEW_WORKTREE_BLANK_AGENT: NewWorktreeAgentOption = {
   id: '__blank__',
