@@ -3212,6 +3212,7 @@ export type PreloadApi = {
       runId: string
     }) => Promise<AutomationPrecheckResult | null>
     markDispatchResult: (result: AutomationDispatchResult) => Promise<AutomationRun>
+    forgetRun: (args: { runId: string }) => Promise<AutomationRun>
     snapshotWorkspaceName: (args: { workspaceId: string; displayName: string }) => Promise<number>
     rendererReady: () => Promise<void>
     onDispatchRequested: (callback: (request: AutomationDispatchRequest) => void) => () => void

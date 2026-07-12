@@ -4247,6 +4247,8 @@ const api = {
       ipcRenderer.invoke('automations:runPrecheck', args),
     markDispatchResult: (result: AutomationDispatchResult): Promise<AutomationRun> =>
       ipcRenderer.invoke('automations:markDispatchResult', result),
+    forgetRun: (args: { runId: string }): Promise<AutomationRun> =>
+      ipcRenderer.invoke('automations:forgetRun', args),
     snapshotWorkspaceName: (args: { workspaceId: string; displayName: string }): Promise<number> =>
       ipcRenderer.invoke('automations:snapshotWorkspaceName', args),
     rendererReady: (): Promise<void> => ipcRenderer.invoke('automations:rendererReady'),
