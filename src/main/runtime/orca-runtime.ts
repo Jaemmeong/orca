@@ -68,6 +68,7 @@ import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { resolveWorktreeCreateBase } from '../worktree-create-base'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
 import { OrchestrationDb } from './orchestration/db'
+import type { DispatchAgentIdentity } from './orchestration/coordinator'
 import { formatMessagesForInjection } from './orchestration/formatter'
 import type {
   Automation,
@@ -21801,6 +21802,45 @@ export class OrcaRuntimeService {
       ...(pty.launchAgent ? { requestedAgent: pty.launchAgent } : {}),
       ...(baseAgent ? { baseAgent } : {})
     }
+  }
+
+  // Why (§U9 W-T1): the orchestration coordinator resolves a dispatch's agent
+  // identity from the terminal that ACTUALLY receives the work — the same
+  // launch/hook attribution `resolveTerminalAttribution` surfaces (ledger #9,
+  // Option B). It validates reality ("is the agent this terminal runs still
+  // launchable"), never a client-parsed field, and reuses the resolved-vs-hook
+  // precedence already landed for W2. Three cases: a launch-attributed target
+  // carries its true requested agent (may be a custom id) + base; a hook-only
+  // target (base, no requested) is its own requested agent (a built-in id);
+  // an unattributed target returns null so the coordinator skips validation
+  // (the U6 no-op posture — never guess an identity from title text).
+  resolveDispatchAgentIdentityForHandle(handle: string): DispatchAgentIdentity | null {
+    const attribution = this.resolveTerminalAttribution(this.resolvePtyForDispatchHandle(handle))
+    if (attribution.requestedAgent) {
+      return {
+        requestedAgent: attribution.requestedAgent,
+        baseAgent: attribution.baseAgent ?? null
+      }
+    }
+    if (attribution.baseAgent) {
+      return { requestedAgent: attribution.baseAgent, baseAgent: attribution.baseAgent }
+    }
+    return null
+  }
+
+  // Why: dispatch targets are runtime-issued handles for either a renderer leaf
+  // (resolved via the handle record's ptyId) or a runtime-owned synthetic PTY
+  // (`pty:` prefix, resolved by getLivePtyForHandle). Cover both so attribution
+  // is not silently dropped for a legitimately-attributed leaf target.
+  private resolvePtyForDispatchHandle(handle: string): RuntimePtyWorktreeRecord | undefined {
+    const record = this.handles.get(handle)
+    if (record?.ptyId) {
+      const pty = this.ptysById.get(record.ptyId)
+      if (pty) {
+        return pty
+      }
+    }
+    return this.getLivePtyForHandle(handle)?.pty ?? undefined
   }
 
   private buildTerminalSummary(

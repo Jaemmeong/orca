@@ -223,8 +223,9 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     ...(agent === 'command-code' && hasPrompt && promptDelivery === 'auto-submit'
       ? { initialAgentStatus: { agent, prompt: trimmedPrompt } }
       : {}),
+    // Host overwrites agent_kind from the resolved receipt before the emit, so
+    // this host-resolved launch threads only the surface-owned fields.
     telemetry: {
-      agent_kind: resolveTelemetryAgentKind(agent),
       launch_source: launchSource ?? 'tab_bar_quick_launch',
       request_kind: 'new'
     }

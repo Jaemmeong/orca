@@ -45,7 +45,7 @@ import type { StartupCommandDelivery } from '../../../../shared/codex-startup-de
 import type { AgentLaunchInput } from '../../../../shared/agent-launch-spawn-request'
 import { resolveLocalWindowsTerminalShellOverrideForTab } from '../../../../shared/local-windows-terminal-runtime'
 import { WINDOWS_GIT_BASH_SHELL } from '../../../../shared/windows-terminal-shell'
-import type { AgentStartedTelemetry } from '../../lib/worktree-activation'
+import type { StartupLaunchTelemetry } from '../../lib/worktree-activation'
 import { scheduleRuntimeGraphSync } from '@/runtime/sync-runtime-graph'
 import { forgetAgentHibernationTabOutput } from '@/lib/agent-hibernation-output-activity'
 import { forgetForegroundTerminalTabs } from '@/lib/foreground-terminal-tabs'
@@ -513,7 +513,7 @@ export type TerminalSlice = {
       /** Telemetry metadata for the `agent_started` event. Threaded all the
        *  way to the `pty:spawn` IPC handler in main so the event fires only
        *  after spawn confirms — never on click-intent. */
-      telemetry?: AgentStartedTelemetry
+      telemetry?: StartupLaunchTelemetry
     }
   >
   pendingInitialCwdByTabId: Record<string, string>
@@ -715,7 +715,7 @@ export type TerminalSlice = {
       draftPrompt?: string
       initialAgentStatus?: { agent: TuiAgent; prompt: string }
       showSessionRestoredBanner?: boolean
-      telemetry?: AgentStartedTelemetry
+      telemetry?: StartupLaunchTelemetry
     }
   ) => void
   queueTabInitialCwd: (tabId: string, cwd: string) => void
@@ -734,7 +734,7 @@ export type TerminalSlice = {
     draftPrompt?: string
     initialAgentStatus?: { agent: TuiAgent; prompt: string }
     showSessionRestoredBanner?: boolean
-    telemetry?: AgentStartedTelemetry
+    telemetry?: StartupLaunchTelemetry
   } | null
   queueTabSetupSplit: (
     tabId: string,

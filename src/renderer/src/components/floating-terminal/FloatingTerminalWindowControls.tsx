@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAgentCatalog, AgentIcon } from '@/lib/agent-catalog'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
-import { resolveTelemetryAgentKind } from '@/lib/telemetry-agent-kind'
 import { useAppStore } from '@/store'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import { isTuiAgentEnabled, toLegacyAutoPreference } from '../../../../shared/tui-agent-selection'
@@ -68,8 +67,9 @@ export function FloatingTerminalWindowControls({
     state.queueTabStartupCommand(tab.id, {
       command: '',
       agentLaunch: { selection: { kind: 'default' }, allowEmptyPromptLaunch: true },
+      // Host overwrites agent_kind from the resolved receipt before the emit, so
+      // this host-resolved launch threads only the surface-owned fields.
       telemetry: {
-        agent_kind: resolveTelemetryAgentKind(defaultAgent),
         launch_source: 'shortcut',
         request_kind: 'new'
       }

@@ -17,8 +17,9 @@ describe('buildOnboardingFolderAgentStartup', () => {
       command: '',
       launchAgent: 'codex',
       agentLaunch: { selection: { kind: 'default' }, allowEmptyPromptLaunch: true },
+      // agent_kind is host-authoritative (overwritten from the resolved receipt
+      // before the emit), so the payload threads only surface fields.
       telemetry: {
-        agent_kind: 'codex',
         launch_source: 'onboarding',
         request_kind: 'new'
       }
@@ -97,8 +98,9 @@ describe('buildOnboardingFolderAgentStartup', () => {
       command: '',
       launchAgent: 'codex',
       agentLaunch: { selection: { kind: 'default' }, allowEmptyPromptLaunch: true },
+      // agent_kind is host-authoritative (overwritten from the resolved receipt
+      // before the emit), so the payload threads only surface fields.
       telemetry: {
-        agent_kind: 'codex',
         launch_source: 'onboarding',
         request_kind: 'new'
       }

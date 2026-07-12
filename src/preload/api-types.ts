@@ -972,7 +972,7 @@ export type PtySpawnOptions = {
   // Why: telemetry-plan.md§Agent launch semantics — main emits `agent_started`
   // only after the PTY/session is created successfully, so the renderer threads
   // the launch metadata through this field.
-  telemetry?: { agent_kind: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }
+  telemetry?: { agent_kind?: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }
 }
 
 /** Normal pty:spawn result. When the call carried `agentLaunch`, a successful

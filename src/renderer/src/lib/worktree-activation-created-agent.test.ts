@@ -104,8 +104,9 @@ describe('activateAndRevealWorktree created agent reopen', () => {
         selection: { kind: 'agent', agent: 'codex' },
         allowEmptyPromptLaunch: true
       },
+      // agent_kind is host-authoritative (overwritten from the resolved receipt
+      // before the emit), so the reopen payload threads only surface fields.
       telemetry: {
-        agent_kind: 'codex',
         launch_source: 'sidebar',
         request_kind: 'resume'
       }

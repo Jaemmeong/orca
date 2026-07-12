@@ -1,6 +1,5 @@
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
-import { resolveTelemetryAgentKind } from '@/lib/telemetry-agent-kind'
 import {
   activateAndRevealFolderWorkspace,
   type WorktreeStartupPayload
@@ -71,8 +70,9 @@ function buildFolderWorkspaceStartup(args: {
     command: '',
     launchAgent: agent,
     agentLaunch,
+    // Host overwrites agent_kind from the resolved receipt before the emit, so
+    // this host-resolved launch threads only the surface-owned fields.
     telemetry: {
-      agent_kind: resolveTelemetryAgentKind(agent),
       launch_source: launchSource,
       request_kind: 'new'
     }

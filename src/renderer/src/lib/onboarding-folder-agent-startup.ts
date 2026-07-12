@@ -1,6 +1,4 @@
-import { tuiAgentToAgentKind } from '@/lib/telemetry'
 import { isTuiAgentEnabled, toLegacyAutoPreference } from '../../../shared/tui-agent-selection'
-import { resolveTuiAgentBaseAgent } from '../../../shared/custom-tui-agents'
 import type { WorktreeStartupPayload } from '@/lib/worktree-activation'
 import type { GlobalSettings, OnboardingState } from '../../../shared/types'
 
@@ -29,10 +27,9 @@ export function buildOnboardingFolderAgentStartup(
     command: '',
     launchAgent: agent,
     agentLaunch: { selection: { kind: 'default' }, allowEmptyPromptLaunch: true },
+    // Host overwrites agent_kind from the resolved receipt before the emit, so
+    // this host-resolved launch threads only the surface-owned fields.
     telemetry: {
-      agent_kind: tuiAgentToAgentKind(
-        resolveTuiAgentBaseAgent(agent, settings.customTuiAgents, settings.deletedCustomTuiAgents)
-      ),
       launch_source: 'onboarding',
       request_kind: 'new'
     }

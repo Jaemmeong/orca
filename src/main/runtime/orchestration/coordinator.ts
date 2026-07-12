@@ -89,11 +89,14 @@ export type CoordinatorOptions = {
   maxConcurrent?: number
   worktree?: string
   onLog?: (msg: string) => void
-  // Why (§U6): the identity source is a seam, not a behavior — U6 leaves it
-  // absent so every production dispatch records a null identity and skips launch
-  // validation (no behavior change); U9 plugs a resolver that reads the task's
-  // requested agent, at which point the existing validation call goes live.
-  resolveDispatchIdentity?: (task: TaskRow) => DispatchAgentIdentity | null
+  // Why (§U6/§U9): the identity source is a seam, not a behavior — U6 left it
+  // absent so every production dispatch recorded a null identity and skipped
+  // launch validation (no behavior change). U9 plugs a resolver that reads the
+  // attribution of the terminal that ACTUALLY receives the work (targetHandle),
+  // not a parsed task field, so validation checks whether the agent this terminal
+  // runs is still launchable. `task` stays in the signature for symmetry; an
+  // unattributed target returns null and skips validation (never guessed).
+  resolveDispatchIdentity?: (task: TaskRow, targetHandle: string) => DispatchAgentIdentity | null
 }
 
 type CoordinatorState = {
@@ -124,7 +127,7 @@ export class Coordinator {
   > & {
     onLog: (msg: string) => void
     worktree?: string
-    resolveDispatchIdentity?: (task: TaskRow) => DispatchAgentIdentity | null
+    resolveDispatchIdentity?: (task: TaskRow, targetHandle: string) => DispatchAgentIdentity | null
   }
 
   constructor(db: OrchestrationDb, runtime: CoordinatorRuntime, options: CoordinatorOptions) {
@@ -491,7 +494,7 @@ export class Coordinator {
       }
     }
 
-    const identity = this.opts.resolveDispatchIdentity?.(task) ?? null
+    const identity = this.opts.resolveDispatchIdentity?.(task, targetHandle) ?? null
     const dispatch = this.db.createDispatchContext(task.id, targetHandle, identity ?? undefined)
 
     // Why (§U6): a dispatch carrying a host-validated agent identity is

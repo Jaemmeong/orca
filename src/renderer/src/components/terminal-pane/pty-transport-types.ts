@@ -2,7 +2,7 @@ import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-t
 import type { SleepingAgentLaunchConfig } from '../../../../shared/agent-session-resume'
 import type { StartupCommandDelivery } from '../../../../shared/codex-startup-delivery'
 import type { ProjectExecutionRuntimeResolution } from '../../../../shared/project-execution-runtime'
-import type { EventProps } from '../../../../shared/telemetry-events'
+import type { StartupLaunchTelemetry } from '../../lib/worktree-activation'
 import type { TerminalOscColorQueryReplyColors } from '../../../../shared/terminal-osc-color-reply'
 import type { TuiAgent } from '../../../../shared/types'
 import type {
@@ -168,7 +168,7 @@ export type IpcPtyTransportOptions = {
   shellOverride?: string
   projectRuntime?: ProjectExecutionRuntimeResolution
   terminalColorQueryReplies?: TerminalOscColorQueryReplyColors
-  telemetry?: EventProps<'agent_started'>
+  telemetry?: StartupLaunchTelemetry
   onPtyExit?: (ptyId: string) => void
   onTitleChange?: (title: string, rawTitle: string) => void
   onPtySpawn?: (ptyId: string) => void

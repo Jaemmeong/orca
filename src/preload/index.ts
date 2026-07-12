@@ -846,7 +846,7 @@ const api = {
       // source of truth for the launch metadata; main is the source of
       // truth for whether the launch happened. Loose typing here on
       // purpose: validation lives at the main-side schema validator.
-      telemetry?: { agent_kind: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }
+      telemetry?: { agent_kind?: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }
     }): Promise<{
       id: string
       launchConfig?: SleepingAgentLaunchConfig

@@ -2066,10 +2066,10 @@ export type WorktreeStartupLaunch = {
   startupCommandDelivery?: StartupCommandDelivery
   // agent_kind + used_custom_agent are host-authoritative on a resolved launch
   // (the host overwrites them before spawn from the validated snapshot/receipt);
-  // launch_source/request_kind are surface-owned. used_custom_agent is optional so
-  // the legacy client-startup path (no host marker) still typechecks.
+  // launch_source/request_kind are surface-owned. Both are optional: host-resolved
+  // sites omit agent_kind, legacy non-resolver launches still thread it.
   telemetry?: {
-    agent_kind: AgentKind
+    agent_kind?: AgentKind
     launch_source: LaunchSource
     request_kind: RequestKind
     used_custom_agent?: boolean

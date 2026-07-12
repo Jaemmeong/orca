@@ -20,7 +20,6 @@ import { shouldAutoCreateInitialTerminal } from '@/components/terminal/initial-t
 import { buildSetupRunnerCommand } from './setup-runner'
 import { createSequencedSetupAgentCommands } from '../../../shared/setup-agent-sequencing'
 import { getSetupRunnerCommandPlatformForPath } from '../../../shared/setup-runner-command'
-import { resolveTelemetryAgentKind } from './telemetry-agent-kind'
 import { agentKindToTuiAgent } from '../../../shared/agent-kind'
 import { useAppStore } from '@/store'
 import type { PendingSidebarWorktreeReveal } from '@/store/slices/ui'
@@ -63,6 +62,13 @@ import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcrip
  *  telemetry-plan.md§Agent launch semantics. */
 export type AgentStartedTelemetry = EventProps<'agent_started'>
 
+/** Threading-path variant: `agent_kind` is host-authoritative on the resolved
+ *  launch path (main overwrites it from the validated receipt before the emit),
+ *  so a host-resolved launch site omits it. Legacy non-resolver launches still
+ *  thread it as their sole is-agent signal. */
+export type StartupLaunchTelemetry = Omit<AgentStartedTelemetry, 'agent_kind'> &
+  Partial<Pick<AgentStartedTelemetry, 'agent_kind'>>
+
 /** Startup command threaded onto a worktree's first terminal at activation. */
 export type WorktreeStartupPayload = {
   command: string
@@ -74,7 +80,7 @@ export type WorktreeStartupPayload = {
   draftPrompt?: string
   startupCommandDelivery?: StartupCommandDelivery
   initialAgentStatus?: { agent: TuiAgent; prompt: string }
-  telemetry?: AgentStartedTelemetry
+  telemetry?: StartupLaunchTelemetry
   /** Identity-only host launch. When present the host resolves the command,
    *  config, and token; `command` is empty and the client never resolves argv/
    *  env. Used by the create-record-then-launch paths (folder workspace, reopen)
@@ -127,7 +133,7 @@ type WorktreeActivationStore = Partial<WorktreeRuntimeOwnerState> & {
       draftPrompt?: string
       initialAgentStatus?: { agent: TuiAgent; prompt: string }
       showSessionRestoredBanner?: boolean
-      telemetry?: AgentStartedTelemetry
+      telemetry?: StartupLaunchTelemetry
       agentLaunch?: AgentLaunchSpawnRequest
     }
   ) => void
@@ -251,8 +257,9 @@ function buildCreatedAgentReopenStartup(worktree: Worktree): WorktreeStartupPayl
     command: '',
     launchAgent: agent,
     agentLaunch: { selection: { kind: 'agent', agent }, allowEmptyPromptLaunch: true },
+    // Host overwrites agent_kind from the resolved receipt before the emit, so
+    // this host-resolved launch threads only the surface-owned fields.
     telemetry: {
-      agent_kind: resolveTelemetryAgentKind(agent),
       launch_source: 'sidebar',
       request_kind: 'resume'
     }

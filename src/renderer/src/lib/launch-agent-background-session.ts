@@ -3,7 +3,6 @@ import type {
   LaunchAgentBackgroundSessionArgs,
   LaunchAgentBackgroundSessionResult
 } from '@/lib/agent-background-session-contract'
-import { resolveTelemetryAgentKind } from '@/lib/telemetry-agent-kind'
 import { AgentLaunchSpawnOutcomeError } from '@/lib/agent-launch-spawn-outcome-error'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
@@ -210,8 +209,9 @@ export async function launchAgentBackgroundSession(
         worktreeId,
         tabId: tab.id,
         leafId,
+        // Host overwrites agent_kind from the resolved receipt before the emit,
+        // so this host-resolved launch threads only the surface-owned fields.
         telemetry: {
-          agent_kind: resolveTelemetryAgentKind(agent),
           launch_source: launchSource ?? 'unknown',
           request_kind: 'new'
         }
