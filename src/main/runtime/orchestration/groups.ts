@@ -1,4 +1,5 @@
 import type { RuntimeTerminalSummary } from '../../../shared/runtime-types'
+import type { BuiltInTuiAgent } from '../../../shared/types'
 
 // Why: group addresses enable broadcast messaging to logical groups of agents.
 // Resolution is done at send-time: one message record per recipient, same thread_id,
@@ -14,23 +15,29 @@ const AGENT_NAME_GROUPS = [
   'droid'
 ] as const
 
+type AgentNameGroup = (typeof AGENT_NAME_GROUPS)[number]
+
+// Base-to-group map (oracle 16): agent-name groups resolve from a terminal's
+// validated base harness, never its title text. Only bases with an addressable
+// group appear; the `mimo-code` base maps to the existing `@mimo` group name.
+const BASE_AGENT_TO_GROUP: Partial<Record<BuiltInTuiAgent, AgentNameGroup>> = {
+  claude: 'claude',
+  openclaude: 'openclaude',
+  codex: 'codex',
+  opencode: 'opencode',
+  'mimo-code': 'mimo',
+  gemini: 'gemini',
+  droid: 'droid'
+}
+
 export type GroupAddress =
   | '@all'
   | '@idle'
-  | `@${(typeof AGENT_NAME_GROUPS)[number]}`
+  | `@${AgentNameGroup}`
   | `@worktree:${string}`
 
 export function isGroupAddress(to: string): boolean {
   return to.startsWith('@')
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function titleMatchesAgentNameGroup(title: string, agentName: string): boolean {
-  const tokenRe = new RegExp(`(?<![\\w./\\\\-])${escapeRegExp(agentName)}(?![\\w./\\\\-])`, 'i')
-  return tokenRe.test(title)
 }
 
 export function resolveGroupAddress(

@@ -13243,7 +13243,11 @@
         "background": "백그라운드 에이전트를 시작할 수 없습니다.",
         "generic": "에이전트 실행을 완료하지 못했습니다."
       },
-      "forgotten": "You forgot this launch, so it won't run again."
+      "forgotten": "You forgot this launch, so it won't run again.",
+      "rowBadge": {
+        "didNotStart": "Didn't start",
+        "forgotten": "Forgotten"
+      }
     },
     "forgetConfirm": {
       "title": "Forget this launch?",

@@ -10,6 +10,7 @@ import type {
   BrowserCookieImportResult,
   BrowserSessionProfile,
   BrowserSessionProfileSource,
+  BuiltInTuiAgent,
   GitWorktreeInfo,
   RemoveWorktreeResult,
   Repo,
@@ -396,6 +397,15 @@ export type RuntimeTerminalSummary = {
   writable: boolean
   lastOutputAt: number | null
   preview: string
+  /** Validated launch attribution: the requested agent identity (built-in or
+   *  custom), when this terminal was launched through the launch boundary.
+   *  Absent for terminals with no launch attribution (e.g. coordinator-created). */
+  requestedAgent?: TuiAgent
+  /** The base harness this terminal runs, from launch attribution then hook base
+   *  metadata. Drives base-to-group orchestration addressing; absent when the
+   *  terminal is unattributed (such terminals are omitted from agent-name groups,
+   *  never guessed from title text). */
+  baseAgent?: BuiltInTuiAgent
 }
 
 export type RuntimeTerminalVisualTerminalNode = {

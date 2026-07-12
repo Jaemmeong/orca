@@ -224,7 +224,7 @@ import {
   TUI_AGENT_CONFIG,
   type TuiAgentConfig
 } from '../../shared/tui-agent-config'
-import { resolveTuiAgentConfig } from '../../shared/custom-tui-agents'
+import { resolveTuiAgentBaseAgent, resolveTuiAgentConfig } from '../../shared/custom-tui-agents'
 import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
 import { detectInstalledAgentsWithShellPathHydration, detectRemoteAgents } from '../ipc/preflight'
 import {
@@ -21741,6 +21741,31 @@ export class OrcaRuntimeService {
     return resolved ? (summaries.get(resolved.id) ?? null) : null
   }
 
+  // Terminal agent attribution for RuntimeTerminalSummary: validated launch
+  // attribution (launchAgent) then hook base metadata (foregroundAgent). An
+  // unattributed terminal returns no fields so it is omitted from agent-name
+  // groups rather than guessed from title text (U6 coordinator terminals are not
+  // routed through the launch boundary and rely on the hook fallback).
+  private resolveTerminalAttribution(pty: RuntimePtyWorktreeRecord | undefined): {
+    requestedAgent?: TuiAgent
+    baseAgent?: BuiltInTuiAgent
+  } {
+    if (!pty) {
+      return {}
+    }
+    const settings = this.store?.getSettings() as GlobalSettings | undefined
+    const ownerAgent = pty.launchAgent ?? pty.foregroundAgent
+    const baseAgent = resolveTuiAgentBaseAgent(
+      ownerAgent,
+      settings?.customTuiAgents,
+      settings?.deletedCustomTuiAgents
+    )
+    return {
+      ...(pty.launchAgent ? { requestedAgent: pty.launchAgent } : {}),
+      ...(baseAgent ? { baseAgent } : {})
+    }
+  }
+
   private buildTerminalSummary(
     leaf: RuntimeLeafRecord,
     worktreesById: Map<string, ResolvedWorktree>
@@ -21760,7 +21785,8 @@ export class OrcaRuntimeService {
       connected: leaf.connected,
       writable: leaf.writable,
       lastOutputAt: leaf.lastOutputAt,
-      preview: leaf.preview
+      preview: leaf.preview,
+      ...this.resolveTerminalAttribution(leaf.ptyId ? this.ptysById.get(leaf.ptyId) : undefined)
     }
   }
 
@@ -22992,7 +23018,8 @@ export class OrcaRuntimeService {
       connected: pty.connected,
       writable: pty.connected,
       lastOutputAt: pty.lastOutputAt,
-      preview: pty.preview
+      preview: pty.preview,
+      ...this.resolveTerminalAttribution(pty)
     }
   }
 
