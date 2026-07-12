@@ -6,6 +6,7 @@ import {
   createWebRuntimeSessionTerminal,
   isWebRuntimeSessionActive
 } from '@/runtime/web-runtime-session'
+import { AGENT_LAUNCH_IDENTITY_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 import type { AiVaultAgent } from '../../../shared/ai-vault-types'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
 import type { AgentLaunchVaultResumeRequest } from '../../../shared/agent-launch-spawn-request'
@@ -21,9 +22,10 @@ export function launchAiVaultSessionInNewTab(args: {
   command: string
   env?: Record<string, string>
   launchConfig?: SleepingAgentLaunchConfig
-  // Desktop vault-resume rides the host-owned arm: the host re-validates the
-  // discovered entry and assembles command/env itself. The web-runtime path can't
-  // (runtime resume-via-arm is ruled to U7), so it keeps the legacy `command`.
+  // Vault-resume rides the host-owned arm: the host re-validates the discovered
+  // entry and assembles command/env itself. Both the desktop and the web-runtime
+  // paths send it now (the runtime intercepts vaultResume on its own
+  // session.tabs.createTerminal).
   agentLaunch?: AgentLaunchVaultResumeRequest
   targetGroupId?: string
   splitDirection?: TabSplitDirection
@@ -32,11 +34,24 @@ export function launchAiVaultSessionInNewTab(args: {
   let targetGroupId = args.targetGroupId
   const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, args.worktreeId)
   if (isWebRuntimeSessionActive(runtimeEnvironmentId)) {
+    // A confirmed identity-capable runtime owns the resume from the arm, so drop
+    // the client command entirely (never a spawn input on a capable host). When
+    // the arm is absent, or the runtime's advertised capability is unknown/legacy,
+    // keep the command — a pre-identity host strips the arm, so without the command
+    // the user would get a silent bare terminal (the AGENT_LAUNCH_IDENTITY floor is
+    // a static, additive capability, so an older runtime connects without it).
+    const runtimeCapabilities = runtimeEnvironmentId
+      ? store.runtimeStatusByEnvironmentId.get(runtimeEnvironmentId)?.status?.capabilities
+      : undefined
+    const hostOwnsResume =
+      Boolean(args.agentLaunch) &&
+      Boolean(runtimeCapabilities?.includes(AGENT_LAUNCH_IDENTITY_RUNTIME_CAPABILITY))
     const runtimeLaunch = createWebRuntimeSessionTerminal({
       worktreeId: args.worktreeId,
       environmentId: runtimeEnvironmentId,
       ...(targetGroupId ? { targetGroupId } : {}),
-      command: args.command,
+      ...(hostOwnsResume ? {} : { command: args.command }),
+      ...(args.agentLaunch ? { agentLaunch: args.agentLaunch } : {}),
       ...(args.env ? { env: args.env } : {}),
       ...(args.launchConfig ? { launchConfig: args.launchConfig } : {}),
       launchAgent: args.agent,

@@ -51,6 +51,18 @@ export type ResolvedTerminalLaunchFields = {
   launchAgent: BuiltInTuiAgent
   launchToken: string
   startupCommandDelivery?: StartupCommandDelivery
+  /** Post-ready prompt delivery for a host-spawned terminal (U7): a stdin-after-
+   *  start followup is submitted; a no-native-affordance draft is pasted
+   *  unsubmitted. Command-deliverable launches (argv/flag/env) carry neither.
+   *  Present only when the resolved plan retained post-ready text — the host owns
+   *  delivery via the readiness writers, never the client. */
+  postReadyPrompt?: ResolvedTerminalPostReadyPrompt
+}
+
+export type ResolvedTerminalPostReadyPrompt = {
+  expectedProcess: string
+  followupPrompt?: string
+  draftPrompt?: string
 }
 
 /** A pre-spawn typed failure/rejection: NO terminal is created and — for the RPC
@@ -143,10 +155,10 @@ function resolveTerminalSpawnInput(
     }
   }
   if ('vaultResume' in args.request) {
-    // AI Vault resume bypasses the resolver (like legacy replay) and is served on
-    // the runtime by the dedicated copy method plus a still-to-land resume bypass;
-    // the resolver never assembles it. Reaching here means a misroute, so fail
-    // closed rather than treating it as a fresh selection launch.
+    // AI Vault resume bypasses the resolver (like legacy replay): the runtime
+    // intercepts it upstream in resolveWorkspaceAgentLaunch (copy → the dedicated
+    // command method, resume → host-assembled bypass). Reaching the resolver means
+    // a misroute, so fail closed rather than treating it as a fresh selection.
     return { ok: false, failure: { code: 'invalid_launch_snapshot' } }
   }
   return {
@@ -221,6 +233,17 @@ export async function resolveTerminalAgentLaunch(
       launchToken: resolution.receipt.launchToken,
       ...(resolution.plan.startupCommandDelivery !== undefined
         ? { startupCommandDelivery: resolution.plan.startupCommandDelivery }
+        : {}),
+      ...(resolution.plan.followupPrompt || resolution.plan.draftPrompt
+        ? {
+            postReadyPrompt: {
+              expectedProcess: resolution.plan.expectedProcess,
+              ...(resolution.plan.followupPrompt
+                ? { followupPrompt: resolution.plan.followupPrompt }
+                : {}),
+              ...(resolution.plan.draftPrompt ? { draftPrompt: resolution.plan.draftPrompt } : {})
+            }
+          }
         : {})
     }
   }

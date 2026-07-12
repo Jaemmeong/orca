@@ -8,6 +8,7 @@ import {
   projectLegacyDisabledTuiAgents
 } from './agent-catalog-projections'
 import { AgentCatalogRepairTokenRegistry } from './agent-catalog-mutations'
+import { scanForCustomEnvLeak } from '../../shared/custom-env-leak-scan'
 
 const UUID_A = '01234567-89ab-4cde-8f01-23456789abcd'
 const UUID_B = 'fedcba98-7654-4321-8fed-cba987654321'
@@ -194,6 +195,52 @@ describe('local snapshot projection', () => {
     const status = measureLocalAgentCatalogStorage(settingsWith({ customTuiAgents: [liveAgent()] }))
     expect(status.status).toBe('ready')
     expect(status.maxBytes).toBe(16_777_216)
+  })
+})
+
+describe('no custom env leaks recursively (G7 oracle-12/13)', () => {
+  // Deliberately distinctive so a match cannot come from a legitimate id/label/arg.
+  const ENV_KEY_A = 'ZZLEAKKEY_ALPHA'
+  const ENV_VALUE_A = 'zzleakvalue_alpha_9f3'
+  const ENV_KEY_B = 'ZZLEAKKEY_BETA'
+  const ENV_VALUE_B = 'zzleakvalue_beta_7c1'
+  const FORBIDDEN = [ENV_KEY_A, ENV_VALUE_A, ENV_KEY_B, ENV_VALUE_B]
+
+  function envBearingSettings(): GlobalSettings {
+    return settingsWith({
+      customTuiAgents: [
+        // available (syncEnv on) — the case most at risk of leaking through env
+        // application metadata.
+        liveAgent({ env: { [ENV_KEY_A]: ENV_VALUE_A }, syncEnv: true }),
+        // withheld (syncEnv off).
+        liveAgent({
+          id: customId('claude', UUID_B),
+          baseAgent: 'claude',
+          label: 'Withheld',
+          env: { [ENV_KEY_B]: ENV_VALUE_B },
+          syncEnv: false
+        })
+      ]
+    })
+  }
+
+  it('remote snapshot projection carries no env key or value at any depth', () => {
+    const snapshot = buildAgentCatalogSnapshot(envBearingSettings())
+    if ('code' in snapshot) {
+      throw new Error('unexpected projection error')
+    }
+    expect(scanForCustomEnvLeak(snapshot, FORBIDDEN)).toEqual([])
+  })
+
+  it('local snapshot projection carries no env key or value at any depth', () => {
+    const snapshot = buildLocalAgentCatalogSnapshot(
+      envBearingSettings(),
+      new AgentCatalogRepairTokenRegistry()
+    )
+    // The env-numeric summary must survive so the scan is meaningful (env present).
+    const ready = snapshot.customAgents.find((row) => row.status === 'ready')
+    expect(ready && ready.status === 'ready' ? ready.envSummary.entryCount : 0).toBe(1)
+    expect(scanForCustomEnvLeak(snapshot, FORBIDDEN)).toEqual([])
   })
 })
 

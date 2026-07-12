@@ -4864,6 +4864,8 @@
           "4c05b9d7cb": "正在准备设置终端。"
         },
         "AgentsPane": {
+          "agentsReadOnlyTitle": "智能体设置在桌面端管理",
+          "agentsReadOnlyDescription": "这是一个配对客户端。要添加、编辑或删除智能体以及更改默认设置，请使用 Orca 桌面应用。",
           "d83834f5e6": "检测已安装的智能体...",
           "024bd95089": "智能体",
           "e8da2af684": "可安装",

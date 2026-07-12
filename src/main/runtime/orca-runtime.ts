@@ -136,6 +136,7 @@ import type {
   TerminalPaneLayoutNode,
   TerminalTab,
   TuiAgent,
+  BuiltInTuiAgent,
   WorkspaceCreateTelemetrySource,
   WorkspaceSessionState,
   DirEntry
@@ -770,6 +771,7 @@ import type {
 } from '../../shared/agent-launch-spawn-request'
 import {
   resolveVaultResumeCopyCommand,
+  resolveVaultResumeSpawn,
   type VaultResumeCopyResult
 } from '../agent-launch/agent-launch-vault-resume'
 import type {
@@ -783,6 +785,7 @@ import type { AdmissionPrincipal } from '../agent-launch/agent-launch-admission-
 import {
   resolveTerminalAgentLaunch,
   type ResolvedTerminalLaunchFields,
+  type ResolvedTerminalPostReadyPrompt,
   type TerminalAgentLaunchFailure,
   type TerminalAgentLaunchResolution
 } from './terminal-agent-launch-resolution'
@@ -1191,8 +1194,28 @@ type AgentTerminalCreateResolution =
       options: TerminalCreateOptions
       admissionToken: string
       receipt: AgentLaunchReceipt
+      /** Host-owned post-ready prompt for a host-spawned terminal (U7). Delivered
+       *  by the background spawn path via the readiness writers; the renderer-
+       *  backed path spawns the PTY itself, so it does not consume this. */
+      postReadyPrompt?: ResolvedTerminalPostReadyPrompt
     }
   | { kind: 'failed'; outcome: TerminalAgentLaunchFailure }
+
+/** Host-assembled AI Vault resume startup for a runtime terminal spawn. Like the
+ *  desktop legacy replay carve-out, a vault resume BYPASSES the resolver/admission:
+ *  it has no admission token or receipt (attribution rides ORCA_PANE_KEY), so it
+ *  resolves to a plain terminal rather than a `launched` agent-launch. */
+type VaultResumeBypassFields = {
+  command: string
+  env?: Record<string, string>
+  launchConfig?: SleepingAgentLaunchConfig
+}
+
+/** resolveWorkspaceAgentLaunch outcome: the resolver's admitted `resolved`/`failed`
+ *  plus the vault-resume `bypass` the runtime assembles without admission. */
+type WorkspaceAgentLaunchResolution =
+  | TerminalAgentLaunchResolution
+  | { kind: 'bypass'; fields: VaultResumeBypassFields }
 
 /** Options for a mobile-session terminal create. `agentLaunch`/`clientKind`
  *  drive the U3 host-resolved path (client command/env/launchConfig/launchAgent
@@ -1240,6 +1263,12 @@ type MobileTerminalStartupResolution =
       }
       admissionToken: string
       receipt: AgentLaunchReceipt
+      /** Host-owned post-ready prompt (U7). The mobile-session pty is host-tracked
+       *  (headless host-spawn, or a renderer-triggered spawn the host registers), so
+       *  the host delivers stdin-after-start/draft prompts here via the readiness
+       *  writers — the requestTabCreate payload carries no prompt, so there is no
+       *  double-delivery. Remote-SSH readiness-paste over the relay is a U10 item. */
+      postReadyPrompt?: ResolvedTerminalPostReadyPrompt
     }
   | { kind: 'failed'; outcome: TerminalAgentLaunchFailure }
 
@@ -18315,19 +18344,41 @@ export class OrcaRuntimeService {
     plan: AgentStartupPlan,
     receipt: AgentLaunchReceipt
   ): void {
-    if (plan.followupPrompt) {
+    if (!plan.followupPrompt && !plan.draftPrompt) {
+      return
+    }
+    this.deliverTerminalLaunchPrompt(handle, receipt.baseAgent, {
+      expectedProcess: plan.expectedProcess,
+      ...(plan.followupPrompt ? { followupPrompt: plan.followupPrompt } : {}),
+      ...(plan.draftPrompt ? { draftPrompt: plan.draftPrompt } : {})
+    })
+  }
+
+  /** Deliver a resolved launch's post-ready prompt on a host-spawned agent
+   *  terminal through the readiness writers — the one writer shared by worktree-
+   *  create and terminal-create. A stdin-after-start followup is submitted; a
+   *  no-native-affordance draft is pasted UNSUBMITTED (input-box-unsubmitted).
+   *  Command-deliverable modes (argv/flag/env) carry no post-ready text and never
+   *  reach here. The full draft text already lives in the resolved plan (retained
+   *  rather than truncated), so this delivery never drops it. */
+  private deliverTerminalLaunchPrompt(
+    handle: string,
+    baseAgent: BuiltInTuiAgent,
+    postReady: ResolvedTerminalPostReadyPrompt
+  ): void {
+    if (postReady.followupPrompt) {
       this.sendStartupFollowupWhenReady(handle, {
-        expectedProcess: plan.expectedProcess,
-        prompt: plan.followupPrompt
+        expectedProcess: postReady.expectedProcess,
+        prompt: postReady.followupPrompt
       })
       return
     }
-    if (plan.draftPrompt) {
+    if (postReady.draftPrompt) {
       // Key the render-ready signal off the base agent: a custom requestedAgent
       // id is not in TUI_AGENT_CONFIG, but its base always is.
       this.pasteStartupDraftWhenReady(handle, {
-        agent: receipt.baseAgent,
-        content: plan.draftPrompt
+        agent: baseAgent,
+        content: postReady.draftPrompt
       })
     }
   }
@@ -18439,7 +18490,16 @@ export class OrcaRuntimeService {
     workspace: TerminalWorkspaceLaunchScope,
     request: AgentLaunchInput,
     clientKind: AuthenticatedClientKind
-  ): Promise<TerminalAgentLaunchResolution> {
+  ): Promise<WorkspaceAgentLaunchResolution> {
+    // U7: an AI Vault resume SPAWN bypasses the resolver/admission entirely (like
+    // the legacy opaque-replay carve-out) — re-validate the client-echoed entry
+    // against a FRESH host scan and assemble the resume command host-side. The
+    // client's filePath is ignored and re-derived; an entry the host's own scan
+    // does not contain fails closed. `copy` is served by resolveAiVaultResumeCommand,
+    // so a copy op reaching a spawn is a misroute.
+    if ('vaultResume' in request) {
+      return this.resolveVaultResumeBypass(request.vaultResume)
+    }
     return resolveTerminalAgentLaunch(
       {
         boundary: getHostAgentLaunchBoundary(),
@@ -18477,14 +18537,42 @@ export class OrcaRuntimeService {
     )
   }
 
-  /** Overlay the host-resolved launch onto presentation/identity options while
-   *  DROPPING every client-authored launch field (command/env/launchConfig/
-   *  launchAgent/startupCommandDelivery). Security boundary: only the resolved
-   *  plan may spawn on the untrusted RPC surface. */
-  private applyResolvedLaunchToTerminalOptions(
-    opts: TerminalCreateOptions,
-    fields: ResolvedTerminalLaunchFields
-  ): TerminalCreateOptions {
+  /** Assemble an AI Vault resume SPAWN host-side without admission or a receipt.
+   *  Runs a fresh discovery, re-validates the client-echoed entry against it, and
+   *  builds the resume command via the shared vault helper. A `copy` op (served by
+   *  the dedicated command method) or an entry the fresh scan does not contain
+   *  fails closed with invalid_launch_snapshot — no terminal, no client path input. */
+  private async resolveVaultResumeBypass(vaultResume: {
+    operation: 'resume' | 'copy'
+    entry: AgentLaunchVaultResumeEntry
+  }): Promise<WorkspaceAgentLaunchResolution> {
+    // Force a fresh scan (high limit) so a deleted session cannot replay from stale
+    // cache and an older target still surfaces past the recency cap.
+    const discovered = await this.listAiVaultSessions({ limit: 2000, force: true })
+    const result = resolveVaultResumeSpawn({
+      vaultResume,
+      sessions: discovered.sessions,
+      // A local session resumes on this host; a remote one uses its own discovered
+      // host platform inside the helper (never the client OS).
+      hostPlatform: process.platform,
+      settings: this.store?.getSettings?.()
+    })
+    if (result.status === 'failed') {
+      return { kind: 'failed', outcome: { status: 'failed', failure: result.failure } }
+    }
+    return {
+      kind: 'bypass',
+      fields: {
+        command: result.startup.command,
+        ...(result.startup.env ? { env: result.startup.env } : {}),
+        ...(result.startup.launchConfig ? { launchConfig: result.startup.launchConfig } : {})
+      }
+    }
+  }
+
+  /** Presentation/identity passthroughs common to every host-resolved terminal
+   *  create — the fields that are NOT the (dropped) client launch payload. */
+  private pickTerminalPresentationOptions(opts: TerminalCreateOptions): TerminalCreateOptions {
     return {
       ...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
       ...(opts.title !== undefined ? { title: opts.title } : {}),
@@ -18500,7 +18588,20 @@ export class OrcaRuntimeService {
         : {}),
       ...(opts.deferMobileSessionPublish !== undefined
         ? { deferMobileSessionPublish: opts.deferMobileSessionPublish }
-        : {}),
+        : {})
+    }
+  }
+
+  /** Overlay the host-resolved launch onto presentation/identity options while
+   *  DROPPING every client-authored launch field (command/env/launchConfig/
+   *  launchAgent/startupCommandDelivery). Security boundary: only the resolved
+   *  plan may spawn on the untrusted RPC surface. */
+  private applyResolvedLaunchToTerminalOptions(
+    opts: TerminalCreateOptions,
+    fields: ResolvedTerminalLaunchFields
+  ): TerminalCreateOptions {
+    return {
+      ...this.pickTerminalPresentationOptions(opts),
       command: fields.command,
       ...(fields.env ? { env: fields.env } : {}),
       launchConfig: fields.launchConfig,
@@ -18509,6 +18610,21 @@ export class OrcaRuntimeService {
       ...(fields.startupCommandDelivery
         ? { startupCommandDelivery: fields.startupCommandDelivery }
         : {})
+    }
+  }
+
+  /** Overlay a vault-resume bypass onto presentation options: a plain terminal
+   *  command with NO launchAgent/launchToken (no admission/receipt), dropping the
+   *  client launch payload exactly like the resolved path. */
+  private applyVaultResumeBypassToOptions(
+    opts: TerminalCreateOptions,
+    fields: VaultResumeBypassFields
+  ): TerminalCreateOptions {
+    return {
+      ...this.pickTerminalPresentationOptions(opts),
+      command: fields.command,
+      ...(fields.env ? { env: fields.env } : {}),
+      ...(fields.launchConfig ? { launchConfig: fields.launchConfig } : {})
     }
   }
 
@@ -18529,10 +18645,21 @@ export class OrcaRuntimeService {
       if (resolution.kind === 'failed') {
         return resolution
       }
+      // A vault resume bypasses admission: it is a plain terminal with the
+      // host-assembled resume command, no settle token or receipt.
+      if (resolution.kind === 'bypass') {
+        return {
+          kind: 'options',
+          options: this.applyVaultResumeBypassToOptions(opts, resolution.fields)
+        }
+      }
       return {
         kind: 'launched',
         admissionToken: resolution.admissionToken,
         receipt: resolution.receipt,
+        ...(resolution.fields.postReadyPrompt
+          ? { postReadyPrompt: resolution.fields.postReadyPrompt }
+          : {}),
         options: this.applyResolvedLaunchToTerminalOptions(opts, resolution.fields)
       }
     }
@@ -18858,6 +18985,16 @@ export class OrcaRuntimeService {
           })
         }
       }
+      // Host-spawned terminal: the host owns post-ready prompt delivery through the
+      // readiness writers (the renderer-backed path spawns its own PTY and handles
+      // this itself). Remote-SSH readiness-paste over the relay is a U10 item.
+      if (resolution.kind === 'launched' && resolution.postReadyPrompt) {
+        this.deliverTerminalLaunchPrompt(
+          handle,
+          resolution.receipt.baseAgent,
+          resolution.postReadyPrompt
+        )
+      }
       return {
         handle,
         tabId,
@@ -19106,6 +19243,21 @@ export class OrcaRuntimeService {
         })
       }
     }
+    // Host owns post-ready prompt delivery on this host-tracked mobile-session pty
+    // (replacing a client terminal.send that raced readiness): a stdin-after-start
+    // prompt would otherwise drop, since the requestTabCreate payload carries none.
+    // Best-effort — only a ready tab exposes the terminal handle the writers resolve.
+    if (
+      startup.kind === 'launched' &&
+      startup.postReadyPrompt &&
+      mobileCreated.tab.status === 'ready'
+    ) {
+      this.deliverTerminalLaunchPrompt(
+        mobileCreated.tab.terminal,
+        startup.receipt.baseAgent,
+        startup.postReadyPrompt
+      )
+    }
     return mobileReceipt
       ? { ...mobileCreated, agentLaunch: { status: 'launched' as const, receipt: mobileReceipt } }
       : mobileCreated
@@ -19127,10 +19279,29 @@ export class OrcaRuntimeService {
       if (resolution.kind === 'failed') {
         return { kind: 'failed', outcome: resolution.outcome }
       }
+      // A vault resume bypasses admission: a plain terminal command with no settle
+      // token or receipt (attribution rides ORCA_PANE_KEY like legacy replay).
+      if (resolution.kind === 'bypass') {
+        return {
+          kind: 'command',
+          admissionToken: null,
+          receipt: null,
+          startupCommand: {
+            command: resolution.fields.command,
+            ...(resolution.fields.env ? { env: resolution.fields.env } : {}),
+            ...(resolution.fields.launchConfig
+              ? { launchConfig: resolution.fields.launchConfig }
+              : {})
+          }
+        }
+      }
       return {
         kind: 'launched',
         admissionToken: resolution.admissionToken,
         receipt: resolution.receipt,
+        ...(resolution.fields.postReadyPrompt
+          ? { postReadyPrompt: resolution.fields.postReadyPrompt }
+          : {}),
         startupCommand: {
           command: resolution.fields.command,
           ...(resolution.fields.env ? { env: resolution.fields.env } : {}),

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentLaunchNotice } from '../../../src/shared/agent-launch-contract'
 import { AGENT_LAUNCH_NOTICE_CODES } from '../../../src/shared/agent-launch-notice-schema'
+import { scanForCustomEnvLeak } from '../../../src/shared/custom-env-leak-scan'
 import { mobileLaunchNoticeTier, resolveMobileLaunchNoticeText } from './mobile-launch-notice-copy'
 
 describe('mobile launch notice copy', () => {
@@ -46,6 +47,22 @@ describe('mobile launch notice copy', () => {
     expect(
       mobileLaunchNoticeTier({ code: 'disabled_custom_fallback', label: 'x', baseAgent: 'codex' })
     ).toBe('banner')
+  })
+
+  it('never embeds a custom env key or value in any rendered copy (G7 oracle-12/13)', () => {
+    // A notice carries only the requested label + base — never env. The scan
+    // proves the rendered banner/chip text cannot leak a configured env key/value
+    // even if a hostile label were adjacent to it.
+    const ENV_KEY = 'ZZLEAKKEY_NOTICE'
+    const ENV_VALUE = 'zzleakvalue_notice_2a6'
+    const sample = (code: (typeof AGENT_LAUNCH_NOTICE_CODES)[number]): AgentLaunchNotice =>
+      code === 'missing_custom_fallback' || code === 'disabled_custom_fallback'
+        ? { code, label: 'Agent', baseAgent: 'codex' }
+        : { code, label: 'Agent' }
+    for (const code of AGENT_LAUNCH_NOTICE_CODES) {
+      const text = resolveMobileLaunchNoticeText(sample(code))
+      expect(scanForCustomEnvLeak(text, [ENV_KEY, ENV_VALUE])).toEqual([])
+    }
   })
 
   it('produces non-empty copy for every notice code in the shared enum', () => {

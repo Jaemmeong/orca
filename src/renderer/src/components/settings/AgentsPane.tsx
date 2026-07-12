@@ -51,6 +51,11 @@ import {
   type AgentPermissionMode
 } from '../../../../shared/tui-agent-permissions'
 import { getSettingOwnershipSummary } from './setting-ownership'
+import {
+  AgentsPaneReadOnlyNotice,
+  guardAgentsPaneWrite,
+  resolveAgentsPaneReadOnly
+} from './agents-pane-read-only'
 import { translate } from '@/i18n/i18n'
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
 import { parseAgentDefaultEnvDraft, stringifyAgentDefaultEnvDraft } from './agent-default-env-draft'
@@ -64,6 +69,8 @@ type AgentsPaneProps = {
   wslAvailable?: boolean
   wslDistros?: string[]
   wslCapabilitiesLoading?: boolean
+  /** Defaults to a paired web client being read-only; explicit value wins (tests). */
+  readOnly?: boolean
 }
 
 type AgentRowProps = {
@@ -636,14 +643,21 @@ export function AgentsPane({
   wslSupportedPlatform,
   wslAvailable,
   wslDistros,
-  wslCapabilitiesLoading
+  wslCapabilitiesLoading,
+  readOnly
 }: AgentsPaneProps): React.JSX.Element {
+  const isReadOnly = resolveAgentsPaneReadOnly(readOnly)
+  // Why: a paired web client renders the catalog view-only; the disabled fieldset
+  // blocks interaction and these guards stop any write that slips through, while
+  // the host rejects remote authoring at the RPC boundary (defense-in-depth).
+  const applyUpdate: AgentsPaneProps['updateSettings'] = (updates) =>
+    guardAgentsPaneWrite(isReadOnly, () => void updateSettings(updates))
   const { detectedIds: detectedList, isRefreshing, refresh } = useDetectedAgents()
   // Why: refresh re-spawns the user's login shell to re-capture PATH
   // (preflight:refreshAgents on the main side). This handles the
   // "installed a new CLI, Orca doesn't see it yet" case without a restart.
   const handleRefresh = (): void => {
-    void refresh()
+    guardAgentsPaneWrite(isReadOnly, () => void refresh())
   }
   const detectedIds = useMemo<Set<string> | null>(
     () => (detectedList ? new Set(detectedList) : null),
@@ -664,36 +678,42 @@ export function AgentsPane({
   const disabledAgents = normalizeDisabledTuiAgents(settings.disabledTuiAgents)
 
   const setDefault = (id: TuiAgent | 'blank' | null): void => {
-    void setDefaultTuiAgent(id)
+    guardAgentsPaneWrite(isReadOnly, () => void setDefaultTuiAgent(id))
   }
 
   const setAgentEnabled = (id: TuiAgent, enabled: boolean): void => {
-    void setTuiAgentEnabled(id, enabled)
+    guardAgentsPaneWrite(isReadOnly, () => void setTuiAgentEnabled(id, enabled))
   }
 
   const saveOverride = (id: TuiAgent, value: string): void => {
     if (!isBuiltInTuiAgent(id)) {
       return
     }
-    void updateBuiltInTuiAgent(id, { commandOverride: value || null })
+    guardAgentsPaneWrite(
+      isReadOnly,
+      () => void updateBuiltInTuiAgent(id, { commandOverride: value || null })
+    )
   }
 
   const saveAgentArgs = (id: TuiAgent, value: string): void => {
     if (!isBuiltInTuiAgent(id)) {
       return
     }
-    void updateBuiltInTuiAgent(id, { args: value })
+    guardAgentsPaneWrite(isReadOnly, () => void updateBuiltInTuiAgent(id, { args: value }))
   }
 
   const saveAgentEnv = (id: TuiAgent, value: Record<string, string>): void => {
     if (!isBuiltInTuiAgent(id)) {
       return
     }
-    void updateBuiltInTuiAgent(id, { env: value })
+    guardAgentsPaneWrite(isReadOnly, () => void updateBuiltInTuiAgent(id, { env: value }))
   }
 
   const saveAgentPermissionMode = (mode: Exclude<AgentPermissionMode, 'mixed'>): void => {
-    void applyAgentPermissionModeViaCatalog(mode, { agentDefaultArgs, agentDefaultEnv })
+    guardAgentsPaneWrite(
+      isReadOnly,
+      () => void applyAgentPermissionModeViaCatalog(mode, { agentDefaultArgs, agentDefaultEnv })
+    )
   }
 
   // Why: null means detection is in flight, not "all agents are installed".
@@ -718,7 +738,8 @@ export function AgentsPane({
   const isBlankDefault = defaultAgent === 'blank'
 
   return (
-    <div className="space-y-8">
+    <fieldset disabled={isReadOnly} className="m-0 min-w-0 space-y-8 border-0 p-0">
+      {isReadOnly && <AgentsPaneReadOnlyNotice />}
       <section className="space-y-4">
         <SettingsSubsectionHeader
           title={translate('auto.components.settings.AgentsPane.385212c7a1', 'Default Agent')}
@@ -763,7 +784,7 @@ export function AgentsPane({
 
       <AgentRuntimeSetting
         settings={settings}
-        updateSettings={updateSettings}
+        updateSettings={applyUpdate}
         refresh={refresh}
         wslSupportedPlatform={wslSupportedPlatform}
         wslAvailable={wslAvailable}
@@ -771,13 +792,13 @@ export function AgentsPane({
         wslCapabilitiesLoading={wslCapabilitiesLoading}
       />
 
-      <AgentStatusHooksSetting settings={settings} updateSettings={updateSettings} />
+      <AgentStatusHooksSetting settings={settings} updateSettings={applyUpdate} />
 
-      <AgentGeneratedTabTitlesSetting settings={settings} updateSettings={updateSettings} />
+      <AgentGeneratedTabTitlesSetting settings={settings} updateSettings={applyUpdate} />
 
-      <AgentAwakeSetting settings={settings} updateSettings={updateSettings} />
+      <AgentAwakeSetting settings={settings} updateSettings={applyUpdate} />
 
-      <AgentCacheTimerSection settings={settings} updateSettings={updateSettings} />
+      <AgentCacheTimerSection settings={settings} updateSettings={applyUpdate} />
 
       <AgentPermissionsSetting mode={agentPermissionMode} onChange={saveAgentPermissionMode} />
 
@@ -837,7 +858,7 @@ export function AgentsPane({
                 onSaveEnv={(v) => saveAgentEnv(agent.id, v)}
                 sessionSourceHome={
                   agent.id === 'codex'
-                    ? buildCodexSessionSourceHomeControl(settings, updateSettings)
+                    ? buildCodexSessionSourceHomeControl(settings, applyUpdate)
                     : undefined
                 }
               />
@@ -898,7 +919,7 @@ export function AgentsPane({
           )}
         </div>
       )}
-    </div>
+    </fieldset>
   )
 }
 

@@ -67,18 +67,47 @@ export function pickPreferredNewWorktreeAgent(
   )
 }
 
+function isNewWorktreeAgentOptionSelectable(
+  option: NewWorktreeAgentOption,
+  detectedAgentIds: Set<string> | null,
+  disabledTuiAgents: TuiAgent[] | undefined
+): boolean {
+  if (option.id === '__blank__') {
+    return true
+  }
+  if (option.isCustom && option.baseAgent) {
+    // Why: a custom agent's availability keys off its base harness — custom ids
+    // never appear in the built-in detection set, so gating on the id would hide
+    // every custom row and repair away a custom selection.
+    return detectedAgentIds === null || detectedAgentIds.has(option.baseAgent)
+  }
+  if (!isMobileTuiAgentEnabled(option.id, disabledTuiAgents)) {
+    return false
+  }
+  return detectedAgentIds === null || detectedAgentIds.has(option.id)
+}
+
+/** Picker rows sourced from the host's env-free synced catalog and narrowed to what
+ *  is launchable on the target connection. Customs are gated on their base harness'
+ *  detection; the projection already excludes disabled/repair-required customs. */
+export function buildSelectableNewWorktreeAgentOptions(args: {
+  snapshot: AgentCatalogValue | null
+  includeCustomAgents: boolean
+  detectedAgentIds: Set<string> | null
+  disabledTuiAgents?: TuiAgent[]
+}): NewWorktreeAgentOption[] {
+  const { snapshot, includeCustomAgents, detectedAgentIds, disabledTuiAgents } = args
+  return buildNewWorktreeAgentOptions(snapshot, { includeCustomAgents }).filter((option) =>
+    isNewWorktreeAgentOptionSelectable(option, detectedAgentIds, disabledTuiAgents)
+  )
+}
+
 function isSelectableAgent(
   agent: NewWorktreeAgentOption,
   settings: NewWorktreeRuntimeSettings | null,
   detectedAgentIds: Set<string> | null
 ): boolean {
-  if (agent.id === '__blank__') {
-    return true
-  }
-  if (!isMobileTuiAgentEnabled(agent.id, settings?.disabledTuiAgents)) {
-    return false
-  }
-  return detectedAgentIds === null || detectedAgentIds.has(agent.id)
+  return isNewWorktreeAgentOptionSelectable(agent, detectedAgentIds, settings?.disabledTuiAgents)
 }
 
 export function resolveNewWorktreeAgentSelection({

@@ -521,6 +521,47 @@ describe('client UI RPC methods', () => {
     expect(response).toMatchObject({ ok: true, result: { settings: applied } })
   })
 
+  it('exposes no catalog/reference mutation method on the paired settings surface (oracle-15)', () => {
+    // Read-only paired settings: catalog/reference AUTHORING is desktop preload IPC
+    // only (settings:mutateAgentCatalog etc.), never a runtime RPC. A paired/mobile
+    // client reaches the host solely through these methods, so the ONLY settings
+    // writer is the key-guarded settings.update. This guard fails if a future
+    // authoring RPC is added to the paired surface without a write-rejection —
+    // exactly the walk's "mutation RPCs have no paired write-rejection" concern.
+    const names = CLIENT_UI_METHODS.map((method) => method.name)
+    const settingsMethods = names.filter((name) => name.startsWith('settings.'))
+    expect(settingsMethods.sort()).toEqual([
+      'settings.agentReferences.get',
+      'settings.get',
+      'settings.update'
+    ])
+    const mutationVerbs = new Set([
+      'mutate',
+      'create',
+      'update',
+      'delete',
+      'set',
+      'author',
+      'rename',
+      'duplicate',
+      'disable',
+      'enable',
+      'write',
+      'save'
+    ])
+    const authoringNoun = /agentcatalog|agentreference|customagent/i
+    // Exact dot-segment match so a verb like `set` cannot false-match `settings`.
+    const mutationLike = names.filter(
+      (name) =>
+        authoringNoun.test(name) &&
+        name
+          .toLowerCase()
+          .split('.')
+          .some((segment) => mutationVerbs.has(segment))
+    )
+    expect(mutationLike).toEqual([])
+  })
+
   it('returns an env-free agent catalog with version 1 and the revision on settings.get', async () => {
     const settings = { defaultTaskSource: 'github' }
     // A live custom agent whose env holds a secret the projection must never emit.

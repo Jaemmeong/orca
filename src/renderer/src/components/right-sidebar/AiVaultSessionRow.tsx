@@ -92,11 +92,9 @@ export function VaultSessionRow({
         event.preventDefault()
         return
       }
-      // U5→U7 hold: click-resume rides the host-owned vault-resume arm, but drag
-      // still serializes the client-built command/launchConfig. The web-runtime DROP
-      // target needs the client builder until the runtime resume-via-arm lands, so
-      // U7 flips drag for desktop and runtime together with the entry-identity
-      // payload — flipping desktop drag alone now would fork the two paths for no gain.
+      // The payload carries the discovered identity for the host-owned resume-via-arm
+      // (desktop drop) AND the client-built command/launchConfig, which the web-runtime
+      // drop still needs because it cannot carry a vaultResume request yet.
       writeAiVaultSessionDragData(event.dataTransfer, {
         agent: session.agent,
         sessionId: session.sessionId,

@@ -13,7 +13,7 @@ import type {
 import type { TerminalPaneSplitSource } from '../../../shared/feature-education-telemetry'
 import type { StartupCommandDelivery } from '../../../shared/codex-startup-delivery'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
-import type { AgentLaunchSpawnRequest } from '../../../shared/agent-launch-spawn-request'
+import type { AgentLaunchInput } from '../../../shared/agent-launch-spawn-request'
 import type { TerminalPaneLayoutNode, TuiAgent } from '../../../shared/types'
 import type { AgentLaunchNoticeCode } from '../../../shared/agent-launch-contract'
 import type { AppState } from '../store/types'
@@ -60,8 +60,10 @@ export async function createWebRuntimeSessionTerminal(args: {
   agent?: TuiAgent
   launchAgent?: TuiAgent
   /** Sanctioned host-resolved launch path; the host owns command/config/token
-   *  assembly and this is the only field that admits a custom agent id. */
-  agentLaunch?: AgentLaunchSpawnRequest
+   *  assembly and this is the only field that admits a custom agent id. Accepts
+   *  the full input union (spawn/resume/vaultResume) — the runtime intercepts a
+   *  vaultResume arm on this same `session.tabs.createTerminal` handler. */
+  agentLaunch?: AgentLaunchInput
   activate?: boolean
   selectWorktree?: boolean
 }): Promise<boolean> {

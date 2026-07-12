@@ -4879,6 +4879,8 @@
           "4c05b9d7cb": "Preparando el terminal de configuración."
         },
         "AgentsPane": {
+          "agentsReadOnlyTitle": "Los ajustes de agents se gestionan en el escritorio",
+          "agentsReadOnlyDescription": "Este es un cliente emparejado. Para añadir, editar o eliminar agents y cambiar los valores predeterminados, usa la app de escritorio de Orca.",
           "d83834f5e6": "Detectando agents instalados…",
           "024bd95089": "agents",
           "e8da2af684": "Disponible para instalar",

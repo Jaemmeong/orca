@@ -298,6 +298,9 @@ const MOBILE_RPC_METHOD_ALLOWLIST = new Set([
   'session.tabs.activate',
   'session.tabs.close',
   'session.tabs.createTerminal',
+  // Why: the mobile launch-notice banner dismisses host-owned notices; the
+  // dismissal is launchToken-scoped host-side, so allowlisting is read-safe.
+  'session.tabs.dismissLaunchNotice',
   'session.tabs.list',
   'session.tabs.listAll',
   'session.tabs.move',

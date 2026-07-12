@@ -19330,6 +19330,48 @@ describe('OrcaRuntimeService', () => {
     )
   })
 
+  it('delivers a stdin-after-start followup on a host-spawned mobile-session agentLaunch', async () => {
+    const spawn = vi.fn().mockResolvedValue({ id: 'pty-aider' })
+    const runtime = new OrcaRuntimeService({
+      ...store,
+      getSettings: () => ({
+        ...store.getSettings(),
+        disabledTuiAgents: [],
+        agentCmdOverrides: {}
+      })
+    } as never)
+    runtime.setPtyController({
+      spawn,
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null
+    })
+    runtime.syncWindowGraph(0, { tabs: [], leaves: [] })
+    // aider is a stock agent gated on detection; mark it installed so the
+    // host-atomic mobile launch resolves as available on this local host.
+    detectInstalledAgentsWithShellPathHydrationMock.mockResolvedValue(['aider'])
+    // Spy the readiness writer so the assertion checks delivery routing without
+    // running the foreground-process poll.
+    const followup = vi.fn()
+    ;(
+      runtime as unknown as {
+        sendStartupFollowupWhenReady: (handle: string, followup: unknown) => void
+      }
+    ).sendStartupFollowupWhenReady = followup
+
+    await runtime.createMobileSessionTerminal(`id:${TEST_WORKTREE_ID}`, {
+      agentLaunch: { selection: { kind: 'agent', agent: 'aider' }, prompt: 'do the thing' }
+    })
+
+    // The mobile-session pty is host-tracked, so the host delivers the prompt as a
+    // post-ready followup (aider is stdin-after-start) — replacing a client
+    // terminal.send that would have raced readiness.
+    expect(followup).toHaveBeenCalledWith(expect.any(String), {
+      expectedProcess: 'aider',
+      prompt: 'do the thing'
+    })
+  })
+
   it('uses POSIX quoting for mobile agent launch commands in WSL project runtimes', async () => {
     await withPlatform('win32', async () => {
       const spawn = vi.fn().mockResolvedValue({ id: 'pty-agent' })

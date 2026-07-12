@@ -378,4 +378,22 @@ describe('AgentsPane', () => {
       true
     )
   })
+
+  it('renders authoring controls without a read-only notice on the desktop host', () => {
+    const markup = renderPane(getDefaultSettings('/tmp'))
+
+    expect(markup).not.toContain('Agent settings are managed on the desktop')
+    expect(markup).not.toContain('disabled=""')
+  })
+
+  it('renders a read-only notice and disables authoring on paired clients', () => {
+    const markup = renderPane(getDefaultSettings('/tmp'), { readOnly: true })
+
+    expect(markup).toContain('Agent settings are managed on the desktop')
+    expect(markup).toContain('use the Orca desktop app')
+    // The whole authoring surface is wrapped in a disabled fieldset so no control
+    // is interactive; the host also rejects remote authoring (defense-in-depth).
+    expect(markup).toContain('<fieldset')
+    expect(markup).toContain('disabled=""')
+  })
 })

@@ -1,5 +1,6 @@
 import { AI_VAULT_AGENTS, type AiVaultAgent } from '../../../shared/ai-vault-types'
 import type { SleepingAgentLaunchConfig } from '../../../shared/agent-session-resume'
+import type { AgentLaunchVaultResumeEntry } from '../../../shared/agent-launch-spawn-request'
 import { measureClipboardTextByteLength } from '../../../shared/clipboard-text'
 import { normalizeExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 
@@ -140,6 +141,25 @@ export function readAiVaultSessionDragData(
     }
   } catch {
     return null
+  }
+}
+
+// Echoes the dragged session's discovered identity for the host-owned resume-via-arm
+// on a desktop drop. Returns null when the payload lacks the executing host id (an
+// old/oversized serialization), so the caller falls back to the client command.
+// filePath rides only the trusted desktop-IPC drop path; the host re-validates the
+// echoed entry against its own fresh scan before it can become a spawn input.
+export function buildAiVaultResumeEntryFromDragPayload(
+  payload: AiVaultSessionDragPayload
+): AgentLaunchVaultResumeEntry | null {
+  if (!payload.sessionExecutionHostId) {
+    return null
+  }
+  return {
+    executionHostId: payload.sessionExecutionHostId,
+    agent: payload.agent,
+    sessionId: payload.sessionId,
+    ...(payload.sessionFilePath ? { filePath: payload.sessionFilePath } : {})
   }
 }
 

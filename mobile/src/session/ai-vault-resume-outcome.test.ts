@@ -1,5 +1,40 @@
 import { describe, expect, it } from 'vitest'
-import { resolveMobileResumeOutcomeDisplay } from './ai-vault-resume-outcome'
+import {
+  readMobileVaultResumeCreateOutcome,
+  resolveMobileResumeOutcomeDisplay
+} from './ai-vault-resume-outcome'
+
+describe('readMobileVaultResumeCreateOutcome', () => {
+  it('reads a plain-terminal bypass success as launched with no notices', () => {
+    expect(
+      readMobileVaultResumeCreateOutcome({ tab: { type: 'terminal', id: 't', terminal: 'p' } })
+    ).toEqual({ kind: 'launched' })
+  })
+
+  it('maps a failed agentLaunch arm to its failure code', () => {
+    expect(
+      readMobileVaultResumeCreateOutcome({
+        agentLaunch: { status: 'failed', failure: { code: 'invalid_launch_snapshot' } }
+      })
+    ).toEqual({ kind: 'failed', code: 'invalid_launch_snapshot' })
+  })
+
+  it('treats a rejected echoed identity as a generic, un-actionable failure', () => {
+    expect(
+      readMobileVaultResumeCreateOutcome({
+        agentLaunch: { status: 'rejected', requestError: { code: 'untrusted_reference' } }
+      })
+    ).toEqual({ kind: 'failed', code: 'spawn_failed' })
+  })
+
+  it('fails closed on an unexpected envelope shape', () => {
+    expect(readMobileVaultResumeCreateOutcome(null)).toEqual({
+      kind: 'failed',
+      code: 'spawn_failed'
+    })
+    expect(readMobileVaultResumeCreateOutcome({})).toEqual({ kind: 'failed', code: 'spawn_failed' })
+  })
+})
 
 describe('mobile resume outcome display', () => {
   it('offers an explicit launch-with-current-settings action on an invalid snapshot', () => {

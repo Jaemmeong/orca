@@ -22,6 +22,8 @@ import type {
 } from '../../shared/agent-launch-host-contract'
 import type { ResolveAgentLaunchOutcome } from '../agent-launch/resolve-agent-launch'
 import type { AuthenticatedClientKind } from '../agent-launch/agent-launch-boundary'
+import type { TuiAgent } from '../../shared/types'
+import { scanForCustomEnvLeak } from '../../shared/custom-env-leak-scan'
 
 function makeSnapshot(): AgentLaunchSnapshot {
   return {
@@ -127,6 +129,12 @@ describe('resolveTerminalAgentLaunch', () => {
     expect(result.admissionToken).toBe(result.fields.launchToken)
     expect(result.receipt.baseAgent).toBe('claude')
     expect(result.receipt.catalogRevision).toBe(4)
+    // A stdin-after-start launch threads the prompt as a post-ready followup the
+    // host submits on its own spawned terminal (never a client-delivered send).
+    expect(result.fields.postReadyPrompt).toEqual({
+      expectedProcess: 'claude',
+      followupPrompt: 'go'
+    })
     // Detection ran against the target descriptor.
     expect(detectStockBaseAgents).toHaveBeenCalledWith(DESCRIPTOR)
     // Trust preflight marked the workspace for the resolved launch before admission.
@@ -177,6 +185,105 @@ describe('resolveTerminalAgentLaunch', () => {
       outcome: { status: 'rejected', requestError: { code: 'untrusted_reference' } }
     })
   })
+
+  it('never carries a custom env key/value in the client receipt (G7 oracle-12/13)', async () => {
+    const ENV_KEY = 'ZZLEAKKEY_RECEIPT'
+    const ENV_VALUE = 'zzleakvalue_receipt_4b8'
+    const customId = 'custom-agent:claude:01234567-89ab-4cde-8f01-23456789abcd' as TuiAgent
+    const resolve = vi.fn(() => ({
+      ok: true as const,
+      launch: {
+        ...makeLaunch(),
+        requestedAgent: customId,
+        displayLabel: 'Env Agent',
+        // The launch object DOES carry the admitted env; the client-crossing
+        // receipt must drop every trace of it.
+        agentEnv: { [ENV_KEY]: ENV_VALUE },
+        policy: { ...makeLaunch().policy, mode: 'custom' as const, env: 'full' as const },
+        notices: [{ code: 'env_withheld' as const, label: 'Env Agent' }],
+        telemetry: { agentKind: 'claude-code' as const, usedCustomAgent: true }
+      }
+    }))
+    const deps = makeDeps(resolve)
+    const result = await resolveTerminalAgentLaunch(deps, makeArgs('mobile'))
+    expect(result.kind).toBe('resolved')
+    if (result.kind !== 'resolved') {
+      return
+    }
+    expect(scanForCustomEnvLeak(result.receipt, [ENV_KEY, ENV_VALUE])).toEqual([])
+  })
+
+  it('never lets an untrusted client escalate to an unattended intent (GP3)', async () => {
+    // Ledger #6 GP3 pin: convert the safe-by-construction inference into an
+    // asserted property. A client cannot mint automation/background/orchestration
+    // authority on the runtime RPC surface — the host derives the intent from the
+    // authenticated clientKind, so a client-declared `unattended` is dropped and
+    // its prompt can only ever ride an interactive (bounded-draft) intent. Owner
+    // prompt authority is host-constructed and never reachable from a client here.
+    let captured: ResolveAgentLaunchRequest | null = null
+    const resolve = (request: ResolveAgentLaunchRequest): ResolveAgentLaunchOutcome => {
+      captured = request
+      return { ok: true as const, launch: makeLaunch() }
+    }
+    const deps = makeDeps(resolve)
+    await resolveTerminalAgentLaunch(deps, {
+      ...makeArgs('mobile'),
+      request: {
+        selection: { kind: 'agent' as const, agent: 'claude' as const },
+        prompt: 'client-supplied draft that must never ride owner authority',
+        unattended: { kind: 'background' as const }
+      }
+    })
+    expect(captured!.intent).toEqual({ kind: 'interactive', client: 'mobile' })
+  })
+})
+
+describe('resolveTerminalAgentLaunch target-host planning (U7 oracle-14)', () => {
+  const WINDOWS_POWERSHELL: AgentLaunchHostDescriptor = {
+    kind: 'local',
+    platform: 'win32',
+    shell: 'powershell'
+  }
+  const WINDOWS_CMD: AgentLaunchHostDescriptor = { kind: 'local', platform: 'win32', shell: 'cmd' }
+  const WSL_LINUX: AgentLaunchHostDescriptor = { kind: 'local', platform: 'linux', shell: 'posix' }
+  const SSH_LINUX: AgentLaunchHostDescriptor = {
+    kind: 'ssh',
+    connectionId: 'conn-1',
+    platform: 'linux',
+    shell: 'posix'
+  }
+
+  // A paired-web/iOS client only names the identity; the host plans from the
+  // TARGET execution host it derives, never the phone/browser OS. The resolver's
+  // own assembly suite proves platform/shell → target quoting; this proves those
+  // target values (and the detection descriptor) reach the resolver on the
+  // untrusted client surface regardless of clientKind.
+  it.each([
+    ['runtime', WINDOWS_POWERSHELL, 'win32', 'powershell'],
+    ['mobile', WINDOWS_POWERSHELL, 'win32', 'powershell'],
+    ['runtime', WINDOWS_CMD, 'win32', 'cmd'],
+    ['mobile', WSL_LINUX, 'linux', 'posix'],
+    ['runtime', SSH_LINUX, 'linux', 'posix']
+  ] as const)(
+    'plans a %s client launch from the target descriptor (%o → %s/%s), not the client OS',
+    async (clientKind, descriptor, platform, shell) => {
+      let captured: ResolveAgentLaunchRequest | null = null
+      const resolve = (request: ResolveAgentLaunchRequest): ResolveAgentLaunchOutcome => {
+        captured = request
+        return { ok: true as const, launch: makeLaunch() }
+      }
+      const detectStockBaseAgents = vi.fn(async () => null)
+      const deps = makeDeps(resolve, { detectStockBaseAgents })
+      await resolveTerminalAgentLaunch(deps, { ...makeArgs(clientKind), descriptor })
+      // The target platform/shell reach the resolver — the mobile/web client OS
+      // never participates in quoting.
+      expect(captured!.platform).toBe(platform)
+      expect(captured!.shell).toBe(shell)
+      expect(captured!.isRemote).toBe(descriptor.kind === 'ssh')
+      // Stock detection ran against the TARGET descriptor, not a client host.
+      expect(detectStockBaseAgents).toHaveBeenCalledWith(descriptor)
+    }
+  )
 })
 
 describe('resolveTerminalAgentLaunch recipe-arg threading (U7)', () => {

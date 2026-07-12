@@ -4864,6 +4864,8 @@
           "4c05b9d7cb": "설정 터미널을 준비하고 있습니다."
         },
         "AgentsPane": {
+          "agentsReadOnlyTitle": "Agent 설정은 데스크톱에서 관리됩니다",
+          "agentsReadOnlyDescription": "페어링된 클라이언트입니다. agents를 추가, 편집, 삭제하거나 기본값을 변경하려면 Orca 데스크톱 앱을 사용하세요.",
           "d83834f5e6": "설치된 agents 감지 중…",
           "024bd95089": "에이전트",
           "e8da2af684": "설치 가능",

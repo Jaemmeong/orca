@@ -3,6 +3,7 @@ import {
   buildVaultResumeStartup,
   findVaultResumeSession,
   resolveVaultResumeCopyCommand,
+  resolveVaultResumeSpawn,
   type VaultResumeSession
 } from './agent-launch-vault-resume'
 import { RESUMABLE_TUI_AGENTS } from '../../shared/agent-session-resume'
@@ -152,5 +153,43 @@ describe('resolveVaultResumeCopyCommand', () => {
       status: 'failed',
       failure: { code: 'invalid_launch_snapshot' }
     })
+  })
+})
+
+describe('resolveVaultResumeSpawn (U7 runtime resume-via-arm)', () => {
+  it('assembles the full startup (command/env/launchConfig) for a discovered resume', () => {
+    const session = vaultSession({ agent: 'codex', sessionId: 'spawn-id' })
+    const result = resolveVaultResumeSpawn({
+      vaultResume: { operation: 'resume', entry: entryFor(session) },
+      sessions: [session],
+      hostPlatform: 'linux'
+    })
+    expect(result.status).toBe('ok')
+    if (result.status === 'ok') {
+      const expected = buildVaultResumeStartup({ session, hostPlatform: 'linux' })
+      expect(result.startup.command).toBe(expected.command)
+      expect(result.startup.launchConfig).toEqual(expected.launchConfig)
+    }
+  })
+
+  it('fails closed for an entry the host did not discover', () => {
+    const session = vaultSession({ sessionId: 'known' })
+    const result = resolveVaultResumeSpawn({
+      vaultResume: { operation: 'resume', entry: { ...entryFor(session), sessionId: 'unknown' } },
+      sessions: [session],
+      hostPlatform: 'linux'
+    })
+    expect(result).toEqual({ status: 'failed', failure: { code: 'invalid_launch_snapshot' } })
+  })
+
+  it('fails closed for a copy op reaching the spawn arm (misroute)', () => {
+    // copy is served by the dedicated command method; a copy op must never spawn.
+    const session = vaultSession({ sessionId: 'copy-misroute' })
+    const result = resolveVaultResumeSpawn({
+      vaultResume: { operation: 'copy', entry: entryFor(session) },
+      sessions: [session],
+      hostPlatform: 'linux'
+    })
+    expect(result).toEqual({ status: 'failed', failure: { code: 'invalid_launch_snapshot' } })
   })
 })

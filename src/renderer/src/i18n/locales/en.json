@@ -4879,6 +4879,8 @@
           "4c05b9d7cb": "Preparing setup terminal."
         },
         "AgentsPane": {
+          "agentsReadOnlyTitle": "Agent settings are managed on the desktop",
+          "agentsReadOnlyDescription": "This is a paired client. To add, edit, or remove agents and change defaults, use the Orca desktop app.",
           "d83834f5e6": "Detecting installed agents…",
           "024bd95089": "agents",
           "e8da2af684": "Available to install",

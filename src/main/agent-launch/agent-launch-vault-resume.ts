@@ -104,6 +104,37 @@ export function resolveVaultResumeCopyCommand(args: {
   }
 }
 
+export type VaultResumeSpawnResult =
+  | { status: 'ok'; startup: VaultResumeStartup }
+  | { status: 'failed'; failure: { code: 'invalid_launch_snapshot' } }
+
+/** Re-validate + assemble a vault resume SPAWN (as distinct from copy). A `copy`
+ *  operation is served by the dedicated command method, so reaching here is a
+ *  misroute; an entry the fresh scan does not contain fails closed. Both failures
+ *  are invalid_launch_snapshot — no terminal, no client path becomes a spawn input. */
+export function resolveVaultResumeSpawn(args: {
+  vaultResume: { operation: 'resume' | 'copy'; entry: AgentLaunchVaultResumeEntry }
+  sessions: readonly VaultResumeSession[]
+  hostPlatform: NodeJS.Platform
+  settings?: VaultResumeAssemblySettings
+}): VaultResumeSpawnResult {
+  if (args.vaultResume.operation !== 'resume') {
+    return { status: 'failed', failure: { code: 'invalid_launch_snapshot' } }
+  }
+  const session = findVaultResumeSession(args.vaultResume.entry, args.sessions)
+  if (!session) {
+    return { status: 'failed', failure: { code: 'invalid_launch_snapshot' } }
+  }
+  return {
+    status: 'ok',
+    startup: buildVaultResumeStartup({
+      session,
+      hostPlatform: args.hostPlatform,
+      settings: args.settings
+    })
+  }
+}
+
 /** Build the resume startup for a re-validated (host-discovered) session. */
 export function buildVaultResumeStartup(args: {
   session: VaultResumeSession

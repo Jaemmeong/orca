@@ -29,6 +29,29 @@ const LAUNCH_CURRENT_SETTINGS: MobileResumeAffordance = {
   label: 'Launch with current settings'
 }
 
+// Maps a host-owned vault-resume createTerminal response to the domain outcome.
+// Success is a PLAIN terminal (bypass) with no receipt, so there are never
+// notices; a pre-spawn failure rides the agentLaunch failure arm (no tab). A
+// `rejected` arm means the echoed identity was refused — a contract error, not a
+// recoverable snapshot loss — so it surfaces as a generic, un-actionable failure.
+export function readMobileVaultResumeCreateOutcome(result: unknown): MobileResumeOutcome {
+  const envelope = result as {
+    tab?: unknown
+    agentLaunch?: { status?: string; failure?: { code?: AgentLaunchFailureCode } } | null
+  } | null
+  const agentLaunch = envelope?.agentLaunch
+  if (agentLaunch?.status === 'failed') {
+    return { kind: 'failed', code: agentLaunch.failure?.code ?? 'spawn_failed' }
+  }
+  if (agentLaunch?.status === 'rejected') {
+    return { kind: 'failed', code: 'spawn_failed' }
+  }
+  if (envelope?.tab) {
+    return { kind: 'launched' }
+  }
+  return { kind: 'failed', code: 'spawn_failed' }
+}
+
 export function resolveMobileResumeOutcomeDisplay(
   outcome: MobileResumeOutcome
 ): MobileResumeOutcomeDisplay {

@@ -1,11 +1,13 @@
-// Post-ready prompt delivery for host-spawned created-worktree agent terminals.
-// A created worktree terminal is host-spawned with no renderer writer armed, so
-// the host must deliver stdin-after-start (followupPrompt) and no-native-
-// affordance draft (draftPrompt) prompts itself; command-deliverable modes carry
-// no post-ready text. This exercises only the delivery routing — the readiness
+// Post-ready prompt delivery for host-spawned agent terminals. A host-spawned
+// terminal (created-worktree OR a background terminal-create) has no renderer
+// writer armed, so the host must deliver stdin-after-start (followupPrompt) and
+// no-native-affordance draft (draftPrompt) prompts itself through one shared
+// writer (deliverTerminalLaunchPrompt); command-deliverable modes carry no
+// post-ready text. This exercises only the delivery routing — the readiness
 // writers' internal polling/paste is unit-tested separately.
 import { describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
+import type { ResolvedTerminalPostReadyPrompt } from './terminal-agent-launch-resolution'
 import type { AgentStartupPlan } from '../../shared/tui-agent-startup'
 import type { AgentLaunchReceipt } from '../../shared/agent-launch-contract'
 
@@ -21,6 +23,11 @@ type DeliveryInternals = {
     handle: string,
     plan: AgentStartupPlan,
     receipt: AgentLaunchReceipt
+  ) => void
+  deliverTerminalLaunchPrompt: (
+    handle: string,
+    baseAgent: string,
+    postReady: ResolvedTerminalPostReadyPrompt
   ) => void
   sendStartupFollowupWhenReady: (handle: string, followup: unknown) => void
   pasteStartupDraftWhenReady: (handle: string, draft: unknown) => void
@@ -102,6 +109,50 @@ describe('deliverWorktreeAgentLaunchPrompt', () => {
       basePlan({ launchCommand: 'codex --prompt "inline"' }),
       RECEIPT
     )
+
+    expect(followup).not.toHaveBeenCalled()
+    expect(draft).not.toHaveBeenCalled()
+  })
+})
+
+// The extracted shared writer the background terminal-create path uses directly
+// (worktree-create delegates to it). Same routing contract, keyed off the base
+// agent + resolved post-ready prompt rather than a full startup plan.
+describe('deliverTerminalLaunchPrompt', () => {
+  it('submits a stdin-after-start followup with the resolved expected process', () => {
+    const runtime = new OrcaRuntimeService()
+    const { internals, followup, draft } = armDeliverySpies(runtime)
+
+    internals.deliverTerminalLaunchPrompt('term-1', 'codex', {
+      expectedProcess: 'codex',
+      followupPrompt: 'do the thing'
+    })
+
+    expect(followup).toHaveBeenCalledWith('term-1', {
+      expectedProcess: 'codex',
+      prompt: 'do the thing'
+    })
+    expect(draft).not.toHaveBeenCalled()
+  })
+
+  it('pastes a no-affordance draft unsubmitted, keyed off the passed base agent', () => {
+    const runtime = new OrcaRuntimeService()
+    const { internals, followup, draft } = armDeliverySpies(runtime)
+
+    internals.deliverTerminalLaunchPrompt('term-2', 'codex', {
+      expectedProcess: 'codex',
+      draftPrompt: 'draft body'
+    })
+
+    expect(draft).toHaveBeenCalledWith('term-2', { agent: 'codex', content: 'draft body' })
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('delivers nothing when neither followup nor draft text is present', () => {
+    const runtime = new OrcaRuntimeService()
+    const { internals, followup, draft } = armDeliverySpies(runtime)
+
+    internals.deliverTerminalLaunchPrompt('term-3', 'codex', { expectedProcess: 'codex' })
 
     expect(followup).not.toHaveBeenCalled()
     expect(draft).not.toHaveBeenCalled()

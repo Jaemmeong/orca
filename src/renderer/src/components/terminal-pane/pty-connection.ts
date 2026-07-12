@@ -1103,8 +1103,12 @@ export function connectPanePty(
   // Why: on the host-resolved agentLaunch path the renderer no longer mints a
   // token — it is undefined until the launched receipt arrives post-spawn, then
   // reassigned so the status-attribution callbacks and effective-config
-  // registration below use the host's admission-minted token. The legacy/resume
-  // path keeps minting client-side from the stored launchConfig.
+  // registration below use the host's admission-minted token.
+  // U7 RE-HOLD: the legacy/resume path still mints client-side because these callers
+  // keep queueing a stored launchConfig — background-session, source-control plan,
+  // launch-agent-in-new-tab (U8), sleeping-launch legacy, work-item-direct, and the
+  // web-runtime vault-resume fallback (desktop vault drag/drop now rides the host
+  // arm). Retire with the legacy launchConfig field (U10 cleanup) once all flip off it.
   let launchToken = paneStartup?.launchConfig
     ? (paneStartup.launchToken ?? createBrowserUuid())
     : undefined
