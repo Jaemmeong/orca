@@ -42,7 +42,9 @@ describe('validateDispatchIdentityAgainstCatalog', () => {
       DETERMINISTIC
     )
     expect(result.ok).toBe(false)
-    if (result.ok) return
+    if (result.ok) {
+      return
+    }
     expect(result.launchFailure.code).toBe('base_agent_disabled')
   })
 
@@ -53,7 +55,9 @@ describe('validateDispatchIdentityAgainstCatalog', () => {
       DETERMINISTIC
     )
     expect(result.ok).toBe(false)
-    if (result.ok) return
+    if (result.ok) {
+      return
+    }
     expect(result.launchFailure.code).toBe('base_agent_disabled')
   })
 
@@ -64,7 +68,9 @@ describe('validateDispatchIdentityAgainstCatalog', () => {
       DETERMINISTIC
     )
     expect(result.ok).toBe(false)
-    if (result.ok) return
+    if (result.ok) {
+      return
+    }
     expect(result.launchFailure.code).toBe('custom_agent_disabled')
   })
 
@@ -75,7 +81,9 @@ describe('validateDispatchIdentityAgainstCatalog', () => {
       DETERMINISTIC
     )
     expect(result.ok).toBe(false)
-    if (result.ok) return
+    if (result.ok) {
+      return
+    }
     expect(result.launchFailure.code).toBe('unknown_agent')
   })
 
@@ -86,7 +94,9 @@ describe('validateDispatchIdentityAgainstCatalog', () => {
       DETERMINISTIC
     )
     expect(result.ok).toBe(false)
-    if (result.ok) return
+    if (result.ok) {
+      return
+    }
     expect(result.launchFailure).toMatchObject({
       code: 'unknown_agent',
       version: 1,
@@ -104,7 +114,9 @@ describe('validateDispatchIdentityAgainstCatalog', () => {
       DETERMINISTIC
     )
     expect(result.ok).toBe(false)
-    if (result.ok) return
+    if (result.ok) {
+      return
+    }
     expect(result.launchFailure.code).toBe('unknown_agent')
   })
 })
