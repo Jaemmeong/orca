@@ -56,7 +56,7 @@ describe('orchestration RPC methods', () => {
 
   it('registers all expected methods', () => {
     const registry = buildRegistry(ORCHESTRATION_METHODS)
-    expect(registry.size).toBe(16)
+    expect(registry.size).toBe(17)
     expect(registry.has('orchestration.send')).toBe(true)
     expect(registry.has('orchestration.check')).toBe(true)
     expect(registry.has('orchestration.reply')).toBe(true)
@@ -66,6 +66,7 @@ describe('orchestration RPC methods', () => {
     expect(registry.has('orchestration.taskUpdate')).toBe(true)
     expect(registry.has('orchestration.dispatch')).toBe(true)
     expect(registry.has('orchestration.dispatchShow')).toBe(true)
+    expect(registry.has('orchestration.dispatchForget')).toBe(true)
     expect(registry.has('orchestration.ask')).toBe(true)
     expect(registry.has('orchestration.run')).toBe(true)
     expect(registry.has('orchestration.runStop')).toBe(true)
@@ -1283,6 +1284,82 @@ describe('orchestration RPC methods', () => {
 
       // ...but the read surface coalesces it to legacy `failed`.
       expect(result.dispatch?.status).toBe('failed')
+    })
+  })
+
+  describe('orchestration.dispatchForget', () => {
+    const strandedFailure = {
+      code: 'launch_state_unknown' as const,
+      version: 1 as const,
+      failureId: 'fail-strand-1',
+      intent: 'orchestration' as const,
+      occurredAt: 1_700_000_000_000
+    }
+
+    it('forgets a stranded dispatch and returns the RAW forgotten status (not projected)', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.markDispatchLaunchUnknown(ctx.id, strandedFailure)
+
+      const result = (await call('orchestration.dispatchForget', {
+        task: task.id
+      })) as { dispatch: { status: string; task_id: string } | null }
+
+      // W-T2: the mutation result must carry RAW 'forgotten' so the renderer can
+      // render the forgotten state — unlike dispatchShow which projects to 'failed'.
+      expect(result.dispatch?.status).toBe('forgotten')
+      expect(result.dispatch?.task_id).toBe(task.id)
+      expect(db.getTask(task.id)?.status).toBe('blocked')
+    })
+
+    it('is idempotent — a repeat forget returns the already-forgotten dispatch', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.markDispatchLaunchUnknown(ctx.id, strandedFailure)
+      await call('orchestration.dispatchForget', { task: task.id })
+
+      const result = (await call('orchestration.dispatchForget', {
+        task: task.id
+      })) as { dispatch: { status: string } | null }
+
+      expect(result.dispatch?.status).toBe('forgotten')
+    })
+
+    it('honors the expectedFailureId anti-race guard', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.markDispatchLaunchUnknown(ctx.id, strandedFailure)
+
+      await expect(
+        call('orchestration.dispatchForget', { task: task.id, expectedFailureId: 'stale-id' })
+      ).rejects.toThrow('Stale forget')
+
+      const result = (await call('orchestration.dispatchForget', {
+        task: task.id,
+        expectedFailureId: 'fail-strand-1'
+      })) as { dispatch: { status: string } | null }
+      expect(result.dispatch?.status).toBe('forgotten')
+    })
+
+    it('throws for a task with no dispatch context', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      await expect(
+        call('orchestration.dispatchForget', { task: task.id })
+      ).rejects.toThrow('No dispatch context')
+    })
+
+    it('refuses to forget a dispatch that is not stranded (not dispatched)', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.completeDispatch(ctx.id)
+      await expect(
+        call('orchestration.dispatchForget', { task: task.id })
+      ).rejects.toThrow('not in a forgettable state')
     })
   })
 

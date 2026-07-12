@@ -46,6 +46,20 @@ function toReaderDispatchContext(ctx: DispatchContextRow): DispatchContextRow {
   return { ...ctx, status: projectDispatchStatusForLegacyReaders(ctx.status) }
 }
 
+// The dispatch's structured launch-failure failureId, used as the Forget
+// anti-race guard. Tolerant of a null/legacy/malformed blob → null.
+function parseDispatchFailureId(agentLaunchFailure: string | null): string | null {
+  if (!agentLaunchFailure) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(agentLaunchFailure) as { failureId?: unknown }
+    return typeof parsed.failureId === 'string' ? parsed.failureId : null
+  } catch {
+    return null
+  }
+}
+
 const SendParams = z
   .object({
     to: requiredString('Missing --to'),
@@ -162,6 +176,14 @@ const DispatchShowParams = z.object({
   preamble: OptionalBoolean,
   from: OptionalString,
   devMode: OptionalBoolean
+})
+
+const DispatchForgetParams = z.object({
+  task: requiredString('Missing --task'),
+  // Anti-race guard: only forget the exact stranded failure the caller saw. The
+  // failureId comes from the dispatch's structured agent_launch_failure (never a
+  // secret). Absent = forget the current stranded dispatch unconditionally.
+  expectedFailureId: OptionalString
 })
 
 const AskParams = z.object({
@@ -556,6 +578,38 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
       }
 
       return { dispatch: ctx ? toReaderDispatchContext(ctx) : null }
+    }
+  }),
+
+  defineMethod({
+    name: 'orchestration.dispatchForget',
+    params: DispatchForgetParams,
+    // Why (§U9 W-T2, plan :498): owner-authorized Forget of a dispatch stranded in
+    // launch_state_unknown. Returns the RAW 'forgotten' dispatch (NOT the legacy
+    // 'failed' projection) so the current renderer renders the forgotten state; the
+    // task moves to 'blocked' and requires an explicit Retry (taskUpdate → 'ready').
+    // Single-dispatch and task-scoped: never bulk, never spawns/kills.
+    handler: (params, { runtime }) => {
+      const db = runtime.getOrchestrationDb()
+      const ctx = db.getDispatchContext(params.task)
+      if (!ctx) {
+        throw new Error(`No dispatch context for task: ${params.task}`)
+      }
+      // Idempotent: a repeat forget on an already-forgotten dispatch is a success.
+      if (ctx.status === 'forgotten') {
+        return { dispatch: ctx }
+      }
+      if (
+        params.expectedFailureId !== undefined &&
+        parseDispatchFailureId(ctx.agent_launch_failure) !== params.expectedFailureId
+      ) {
+        throw new Error(`Stale forget for task ${params.task}: dispatch launch failure changed`)
+      }
+      const forgotten = db.forgetDispatch(ctx.id)
+      if (!forgotten) {
+        throw new Error(`Dispatch for task ${params.task} is not in a forgettable state`)
+      }
+      return { dispatch: forgotten }
     }
   }),
 
