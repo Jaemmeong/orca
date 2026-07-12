@@ -68,7 +68,11 @@ import { mkdir, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { resolveWorktreeCreateBase } from '../worktree-create-base'
 import { resolveWorktreeAddBaseRef } from '../../shared/worktree-base-ref'
 import { OrchestrationDb } from './orchestration/db'
-import type { DispatchAgentIdentity } from './orchestration/coordinator'
+import type {
+  DispatchAgentIdentity,
+  DispatchAgentLaunchValidation
+} from './orchestration/coordinator'
+import { validateDispatchIdentityAgainstCatalog } from './orchestration/dispatch-launch-validation'
 import { formatMessagesForInjection } from './orchestration/formatter'
 import type {
   Automation,
@@ -21826,6 +21830,20 @@ export class OrcaRuntimeService {
       return { requestedAgent: attribution.baseAgent, baseAgent: attribution.baseAgent }
     }
     return null
+  }
+
+  // Why (§U6 ledger #1, §U9 W-T1): the coordinator's resolve-only dispatch launch
+  // validation runtime half. Classifies whether a dispatch's identity still
+  // resolves to a launchable agent against the LIVE catalog — no PTY, no launch
+  // boundary. Orchestration hard-fails a disabled/deleted agent (no safe-fallback);
+  // the coordinator turns `ok:false` into a structured failDispatch with zero PTY.
+  async validateDispatchAgentLaunch(
+    identity: DispatchAgentIdentity
+  ): Promise<DispatchAgentLaunchValidation> {
+    return validateDispatchIdentityAgainstCatalog(
+      identity,
+      this.store?.getSettings() as GlobalSettings | undefined
+    )
   }
 
   // Why: dispatch targets are runtime-issued handles for either a renderer leaf

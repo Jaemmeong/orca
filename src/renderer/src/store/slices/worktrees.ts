@@ -2897,6 +2897,7 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
   ) => {
     const automationProvenanceRequest = options?.automationProvenanceRequest
     const agentLaunch = options?.agentLaunch
+    const agentLaunchTelemetry = options?.agentLaunchTelemetry
     const retryableConflictPatterns = [
       /already exists locally/i,
       /already exists on a remote/i,
@@ -2958,7 +2959,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
             ...(startup ? { startup } : {}),
             ...(creationId ? { creationId } : {}),
             ...(automationProvenanceRequest ? { automationProvenanceRequest } : {}),
-            ...(agentLaunch ? { agentLaunch } : {})
+            ...(agentLaunch ? { agentLaunch } : {}),
+            ...(agentLaunchTelemetry ? { agentLaunchTelemetry } : {})
           }
           const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), repoId))
           const result =
@@ -3015,7 +3017,8 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
                           activate: true
                         }
                       : {}),
-                    ...(agentLaunch ? { agentLaunch } : {})
+                    ...(agentLaunch ? { agentLaunch } : {}),
+                    ...(agentLaunchTelemetry ? { agentLaunchTelemetry } : {})
                   },
                   { timeoutMs: 10 * 60_000 }
                 )

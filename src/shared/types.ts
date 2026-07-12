@@ -2166,6 +2166,11 @@ export type CreateWorktreeArgs = {
    *  terminal.create, and session.tabs.createTerminal (one launch contract
    *  across every surface). */
   agentLaunch?: AgentLaunchSpawnRequest
+  /** Surface-owned `agent_started` fields for a host-emitted interactive create.
+   *  Sent only for interactive agentLaunch creates; the host derives agent_kind +
+   *  used_custom_agent from the resolved receipt and never accepts them here.
+   *  Omission means the host emits nothing (background/automation creates). */
+  agentLaunchTelemetry?: { launch_source: LaunchSource; request_kind: RequestKind }
   /** Correlates `createWorktree:progress` events back to a specific pending
    *  creation in the renderer, so concurrent background creates each drive
    *  their own status surface. Omitted by synchronous callers. */

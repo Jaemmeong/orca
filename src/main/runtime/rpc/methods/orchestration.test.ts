@@ -186,7 +186,9 @@ describe('orchestration RPC methods', () => {
         connected: opts.connected ?? true,
         writable: opts.writable ?? true,
         lastOutputAt: opts.lastOutputAt ?? null,
-        preview: opts.preview ?? ''
+        preview: opts.preview ?? '',
+        ...(opts.requestedAgent ? { requestedAgent: opts.requestedAgent } : {}),
+        ...(opts.baseAgent ? { baseAgent: opts.baseAgent } : {})
       }
     }
 
@@ -285,11 +287,15 @@ describe('orchestration RPC methods', () => {
       expect(result.messages[0].to_handle).toBe('term_b')
     })
 
-    it('fans out agent name group (@claude) by title match', async () => {
+    it('fans out @claude by validated base agent, ignoring title text (oracle 16)', async () => {
+      // W2: agent-name groups resolve from the terminal's validated base harness,
+      // never title text. term_d carries a matching title but NO baseAgent, so it
+      // is omitted rather than guessed into the group.
       setupWithTerminals([
-        makeSummary('term_a', { title: 'Claude Code' }),
-        makeSummary('term_b', { title: 'Claude Code' }),
-        makeSummary('term_c', { title: 'Codex' })
+        makeSummary('term_a', { baseAgent: 'claude', title: 'Claude Code' }),
+        makeSummary('term_b', { baseAgent: 'claude', title: 'worker' }),
+        makeSummary('term_c', { baseAgent: 'codex', title: 'Codex' }),
+        makeSummary('term_d', { title: 'Claude Code' })
       ])
 
       const result = (await call('orchestration.send', {
@@ -302,11 +308,13 @@ describe('orchestration RPC methods', () => {
       expect(result.messages[0].to_handle).toBe('term_b')
     })
 
-    it('fans out @droid by title match', async () => {
+    it('fans out @droid by validated base agent, ignoring title text (oracle 16)', async () => {
+      // term_c's title contains "Android" but its base is codex — a title-based
+      // matcher would wrongly include it; base-agent resolution does not.
       setupWithTerminals([
-        makeSummary('term_a', { title: 'Codex' }),
-        makeSummary('term_b', { title: 'Droid ready' }),
-        makeSummary('term_c', { title: 'Android build' })
+        makeSummary('term_a', { baseAgent: 'codex', title: 'Codex' }),
+        makeSummary('term_b', { baseAgent: 'droid', title: 'worker' }),
+        makeSummary('term_c', { baseAgent: 'codex', title: 'Android build' })
       ])
 
       const result = (await call('orchestration.send', {

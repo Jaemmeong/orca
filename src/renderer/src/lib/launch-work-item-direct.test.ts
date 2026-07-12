@@ -96,8 +96,9 @@ import { launchWorkItemDirect } from './launch-work-item-direct'
 import { pickTuiAgent } from '../../../shared/tui-agent-selection'
 
 /** The trailing `options` arg on createWorktree (index 25) carries the host
- *  `agentLaunch`; when no agent resolves the caller omits it entirely. */
-function optionsArg(): { agentLaunch?: unknown } | undefined {
+ *  `agentLaunch` and the surface-owned `agentLaunchTelemetry`; when no agent
+ *  resolves the caller omits it entirely. */
+function optionsArg(): { agentLaunch?: unknown; agentLaunchTelemetry?: unknown } | undefined {
   return mocks.createWorktree.mock.calls[0]?.[25]
 }
 
@@ -158,7 +159,8 @@ describe('launchWorkItemDirect', () => {
         prompt: 'Fix the failing checks.',
         promptDelivery: 'draft',
         allowEmptyPromptLaunch: true
-      }
+      },
+      agentLaunchTelemetry: { launch_source: 'task_page', request_kind: 'new' }
     })
     // The host spawned the primary agent terminal, so the client suppresses its
     // own reopen/auto-create.
@@ -166,10 +168,9 @@ describe('launchWorkItemDirect', () => {
       'repo-1::/repo/worktree',
       expect.objectContaining({ hostSpawnedPrimary: true })
     )
-    expect(mocks.track).toHaveBeenCalledWith(
-      'agent_started',
-      expect.objectContaining({ agent_kind: 'codex', launch_source: 'task_page' })
-    )
+    // The host emits agent_started off the resolved receipt at the registered
+    // create PTY; the renderer no longer fires it (no double-emit).
+    expect(mocks.track).not.toHaveBeenCalledWith('agent_started', expect.anything())
   })
 
   it('omits promptDelivery for submit-after-ready launches so the host submits after ready', async () => {

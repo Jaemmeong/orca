@@ -18,7 +18,6 @@ import { activateAndRevealWorktree, type AgentStartedTelemetry } from '@/lib/wor
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import type { AgentLaunchSpawnRequest } from '../../../shared/agent-launch-spawn-request'
-import { track } from '@/lib/telemetry'
 import {
   filterEnabledTuiAgents,
   isTuiAgentEnabled,
@@ -3559,11 +3558,6 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         Boolean(tuiAgent) &&
         !effectiveBranchNameOverride &&
         !createDisplayName
-      const composerTelemetry: AgentStartedTelemetry = {
-        agent_kind: resolveTelemetryAgentKind(tuiAgent),
-        launch_source: telemetrySource === 'onboarding' ? 'onboarding' : 'new_workspace_composer',
-        request_kind: 'new'
-      }
       // The host owns command/args/env resolution and prompt delivery for every
       // agent class (native-submit, native-draft, aider-followup, codex-draft);
       // the renderer names only the requested agent and the interactive prompt.
@@ -3614,7 +3608,16 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
         undefined,
         undefined,
         submitCompareBaseRef,
-        { agentLaunch }
+        // Surface-owned agent_started fields for the host-emitted create; the host
+        // derives agent_kind from the resolved receipt and fires the event itself.
+        {
+          agentLaunch,
+          agentLaunchTelemetry: {
+            launch_source:
+              telemetrySource === 'onboarding' ? 'onboarding' : 'new_workspace_composer',
+            request_kind: 'new'
+          }
+        }
       )
       // A pre-create agent-launch rejection created no worktree; throw the
       // client-safe recovery copy so the surrounding catch keeps the composer
@@ -3644,11 +3647,6 @@ export function useComposerState(options: UseComposerStateOptions): UseComposerS
               })
             }
           : undefined
-      // agent_started rides the renderer off the host's launched receipt — the
-      // host create-spawn threads no telemetry (parity with the merged-tab path).
-      if (result.agentLaunchResult?.status === 'launched') {
-        track('agent_started', composerTelemetry)
-      }
       const activation = activateAndRevealWorktree(worktree.id, {
         sidebarRevealBehavior: 'auto',
         setup: result.setup,

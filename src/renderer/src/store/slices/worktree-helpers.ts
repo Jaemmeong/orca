@@ -170,6 +170,10 @@ export type WorktreeSlice = {
        *  consume the `CreateWorktreeResult` union (a pre-create rejection is
        *  `created: false` with the composer kept open, never a thrown error). */
       agentLaunch?: CreateWorktreeArgs['agentLaunch']
+      /** Surface-owned agent_started fields for a host-emitted interactive create.
+       *  Threaded only by interactive agentLaunch creates; the host derives kind
+       *  from the receipt. Omit for background/automation (host emits nothing). */
+      agentLaunchTelemetry?: CreateWorktreeArgs['agentLaunchTelemetry']
     }
   ) => Promise<CreateWorktreeResult>
   /** Retry a settled agent-launch failure on an existing worktree. Mints a fresh

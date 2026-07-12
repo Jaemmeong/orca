@@ -159,4 +159,30 @@ describe('coordinator dispatch launch validation', () => {
     expect(result.status).toBe('completed')
     expect(db.getDispatchContext(task.id)?.requested_agent).toBe('my-claude')
   })
+
+  it('passes the dispatch target handle to the identity resolver (W-T1 Option B)', async () => {
+    // The resolver reads the attribution of the terminal that actually receives
+    // the work, so the coordinator must hand it the targetHandle, not just the
+    // task. The pre-provided idle terminal 'term_a' is the dispatch target.
+    db = new OrchestrationDb(':memory:')
+    const runtime = createRuntime({ ok: true })
+    const task = db.createTask({ spec: 'ship it' })
+    const resolverArgs: { taskId: string; targetHandle: string }[] = []
+
+    const coordinator = new Coordinator(db, runtime, {
+      spec: 'go',
+      coordinatorHandle: 'coord',
+      pollIntervalMs: 20,
+      resolveDispatchIdentity: (t, targetHandle) => {
+        resolverArgs.push({ taskId: t.id, targetHandle })
+        return { requestedAgent: 'my-claude', baseAgent: 'claude' }
+      }
+    })
+    const runPromise = coordinator.run()
+    await new Promise((r) => setTimeout(r, 60))
+    insertWorkerDone(db, task.id, 'term_a')
+    await runPromise
+
+    expect(resolverArgs).toEqual([{ taskId: task.id, targetHandle: 'term_a' }])
+  })
 })

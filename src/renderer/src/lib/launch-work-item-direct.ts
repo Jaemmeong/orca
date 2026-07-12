@@ -2,7 +2,6 @@ import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { isTuiAgentEnabled, pickTuiAgent } from '../../../shared/tui-agent-selection'
 import { activateAndRevealWorktree } from '@/lib/worktree-activation'
-import type { AgentStartedTelemetry } from '@/lib/worktree-activation'
 import { getWorkspaceIntentName, getWorkspaceSeedName } from '@/lib/new-workspace'
 import {
   gitLabIssueNumber,
@@ -15,8 +14,6 @@ import {
   agentLaunchRequestErrorMessage
 } from '@/lib/agent-launch-failure-copy'
 import { ensureHooksConfirmed } from '@/lib/ensure-hooks-confirmed'
-import { track } from '@/lib/telemetry'
-import { resolveTelemetryAgentKind } from '@/lib/telemetry-agent-kind'
 import type { AgentLaunchSpawnRequest } from '../../../shared/agent-launch-spawn-request'
 import type { GitPushTarget, SetupDecision, TuiAgent } from '../../../shared/types'
 import { getLinearIssueWorkspaceName } from '../../../shared/workspace-name'
@@ -200,7 +197,11 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       undefined,
       undefined,
       resolvedCompareBaseRef,
-      agentLaunch ? { agentLaunch } : undefined
+      // Surface-owned agent_started fields for the host-emitted create; the host
+      // derives agent_kind from the resolved receipt and fires the event itself.
+      agentLaunch
+        ? { agentLaunch, agentLaunchTelemetry: { launch_source: launchSource, request_kind: 'new' } }
+        : undefined
     )
     if (result.created === false) {
       // A pre-create agent-launch rejection created no worktree; surface the
@@ -214,16 +215,6 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
       return false
     }
     worktreeId = result.worktree.id
-
-    // agent_started rides the renderer off the host's launched receipt — the
-    // host create-spawn threads no telemetry (parity with the composer path).
-    if (requestedAgent && result.agentLaunchResult?.status === 'launched') {
-      track('agent_started', {
-        agent_kind: resolveTelemetryAgentKind(requestedAgent),
-        launch_source: launchSource,
-        request_kind: 'new'
-      } satisfies AgentStartedTelemetry)
-    }
 
     const activation = activateAndRevealWorktree(worktreeId, {
       sidebarRevealBehavior: 'auto',
