@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  capacityActionCopy,
   livenessCopy,
   resolveCapacityRowAction,
   sourceKindCopy,
@@ -30,12 +31,51 @@ describe('resolveCapacityRowAction', () => {
     expect(resolveCapacityRowAction(row())).toBeNull()
   })
 
-  it('is not routable for owner kinds whose producers have not landed yet', () => {
+  it('opens the owning automation run for a run deep link (keyed off the run, not a worktree)', () => {
+    const action = resolveCapacityRowAction(
+      row({ deepLink: { kind: 'run', runId: 'r1', automationId: 'a1' } })
+    )
+    expect(action).toEqual({ kind: 'open-automation-run', automationId: 'a1', runId: 'r1' })
+  })
+
+  it('routes task and session owners to their owning worktree once the scope resolves', () => {
+    expect(
+      resolveCapacityRowAction(
+        row({ deepLink: { kind: 'task', taskId: 't1', worktreeId: 'wt-t' } })
+      )
+    ).toEqual({ kind: 'open-worktree', worktreeId: 'wt-t' })
+    expect(
+      resolveCapacityRowAction(
+        row({ deepLink: { kind: 'session', sessionId: 's1', worktreeId: 'wt-s' } })
+      )
+    ).toEqual({ kind: 'open-worktree', worktreeId: 'wt-s' })
+  })
+
+  it('is copy-only for task and session owners whose worktree scope has not resolved', () => {
+    expect(resolveCapacityRowAction(row({ deepLink: { kind: 'task', taskId: 't1' } }))).toBeNull()
     expect(
       resolveCapacityRowAction(row({ deepLink: { kind: 'session', sessionId: 's1' } }))
     ).toBeNull()
-    expect(resolveCapacityRowAction(row({ deepLink: { kind: 'run', runId: 'r1' } }))).toBeNull()
-    expect(resolveCapacityRowAction(row({ deepLink: { kind: 'task', taskId: 't1' } }))).toBeNull()
+  })
+})
+
+describe('capacityActionCopy', () => {
+  it('labels a run action as "go to run" regardless of liveness', () => {
+    const runAction = { kind: 'open-automation-run', automationId: 'a1', runId: 'r1' } as const
+    expect(capacityActionCopy(runAction, 'live').key).toBe('agentLaunch.capacity.action.goToRun')
+    expect(capacityActionCopy(runAction, 'absent').key).toBe('agentLaunch.capacity.action.goToRun')
+    expect(capacityActionCopy(runAction, 'unknown').key).toBe('agentLaunch.capacity.action.goToRun')
+  })
+
+  it('labels a live worktree "open" and a non-live one "go to workspace"', () => {
+    const worktreeAction = { kind: 'open-worktree', worktreeId: 'wt' } as const
+    expect(capacityActionCopy(worktreeAction, 'live').key).toBe('agentLaunch.capacity.action.open')
+    expect(capacityActionCopy(worktreeAction, 'absent').key).toBe(
+      'agentLaunch.capacity.action.goToWorkspace'
+    )
+    expect(capacityActionCopy(worktreeAction, 'unknown').key).toBe(
+      'agentLaunch.capacity.action.goToWorkspace'
+    )
   })
 })
 

@@ -3,64 +3,15 @@ import { Button } from '@/components/ui/button'
 import { translate } from '@/i18n/i18n'
 import { agentLaunchFailureMessage } from '@/lib/agent-launch-failure-copy'
 import {
+  isDestructiveRecoveryAction,
+  recoveryActionLabel
+} from '@/lib/agent-launch-recovery-action-copy'
+import {
   resolveAgentLaunchRecoveryCard,
   type AgentLaunchRecoveryActionId,
   type AgentLaunchRecoveryLiveness
 } from '@/lib/agent-launch-recovery-card'
 import type { PersistedAgentLaunchFailure } from '../../../../shared/agent-launch-contract'
-
-/** Localized button label for a recovery action. */
-export function recoveryActionLabel(id: AgentLaunchRecoveryActionId): string {
-  switch (id) {
-    case 'retry':
-      return translate('auto.components.AgentLaunchRecoveryCard.retry', 'Retry')
-    case 'retry-current-settings':
-      return translate(
-        'auto.components.AgentLaunchRecoveryCard.retryCurrentSettings',
-        'Retry with current settings'
-      )
-    case 'launch-current-settings':
-      return translate(
-        'auto.components.AgentLaunchRecoveryCard.launchCurrentSettings',
-        'Launch with current settings'
-      )
-    case 'choose-agent':
-      return translate('auto.components.AgentLaunchRecoveryCard.chooseAgent', 'Choose agent')
-    case 'edit-agent-settings':
-      return translate(
-        'auto.components.AgentLaunchRecoveryCard.editAgentSettings',
-        'Edit agent settings'
-      )
-    case 'repair-on-host':
-      return translate(
-        'auto.components.AgentLaunchRecoveryCard.repairOnHost',
-        'Repair on desktop host'
-      )
-    case 'reconnect-securely':
-      return translate(
-        'auto.components.AgentLaunchRecoveryCard.reconnectSecurely',
-        'Reconnect securely'
-      )
-    case 'reconnect':
-      return translate('auto.components.AgentLaunchRecoveryCard.reconnect', 'Reconnect')
-    case 'recover-capacity':
-      return translate(
-        'auto.components.AgentLaunchRecoveryCard.recoverCapacity',
-        'Recover launch capacity…'
-      )
-    case 'open-terminal':
-      return translate('auto.components.AgentLaunchRecoveryCard.openTerminal', 'Open terminal')
-    case 'forget-launch':
-      return translate('auto.components.AgentLaunchRecoveryCard.forgetLaunch', 'Forget launch…')
-    case 'manage-agents':
-      return translate('auto.components.AgentLaunchRecoveryCard.manageAgents', 'Manage agents')
-  }
-}
-
-/** Forget is a destructive confirmation; every other action is safe. */
-function isDestructive(id: AgentLaunchRecoveryActionId): boolean {
-  return id === 'forget-launch'
-}
 
 function RecoveryActionButton({
   id,
@@ -77,7 +28,7 @@ function RecoveryActionButton({
     <Button
       type="button"
       size="sm"
-      variant={isDestructive(id) ? 'destructive' : variant}
+      variant={isDestructiveRecoveryAction(id) ? 'destructive' : variant}
       disabled={disabled}
       onClick={() => onAction(id)}
     >

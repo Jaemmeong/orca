@@ -13011,6 +13011,14 @@
       "stateUnknown": "The launch status is unknown. Check the terminal before retrying.",
       "capacityExceeded": "Too many agent launches are still pending on this host. Reconnect or forget stranded launches, then try again."
     },
+    "unattendedFailure": {
+      "title": {
+        "automation": "An automation's agent didn't start.",
+        "orchestration": "A task's agent didn't start.",
+        "background": "A background agent didn't start.",
+        "generic": "An agent launch didn't finish."
+      }
+    },
     "requestError": {
       "idempotencyConflict": "This launch is already in progress.",
       "staleFailure": "This launch was already resolved. Refresh and try again.",
@@ -13024,7 +13032,8 @@
       "empty": "Launch capacity is currently clear. No launches are pending on this host.",
       "action": {
         "open": "Open",
-        "goToWorkspace": "Go to workspace"
+        "goToWorkspace": "Go to workspace",
+        "goToRun": "Go to run"
       },
       "source": {
         "interactive": "Workspace",

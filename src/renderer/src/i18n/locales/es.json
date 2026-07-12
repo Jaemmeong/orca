@@ -13011,6 +13011,14 @@
       "stateUnknown": "El estado del inicio es desconocido. Revisa la terminal antes de reintentar.",
       "capacityExceeded": "Hay demasiados inicios de agente pendientes en este host. Vuelve a conectar u olvida los inicios bloqueados y vuelve a intentarlo."
     },
+    "unattendedFailure": {
+      "title": {
+        "automation": "No se pudo iniciar el agente de una automatización.",
+        "orchestration": "No se pudo iniciar el agente de una tarea.",
+        "background": "No se pudo iniciar un agente en segundo plano.",
+        "generic": "No se completó un inicio de agente."
+      }
+    },
     "requestError": {
       "idempotencyConflict": "Este inicio ya está en curso.",
       "staleFailure": "Este inicio ya se resolvió. Actualiza e inténtalo de nuevo.",
@@ -13024,7 +13032,8 @@
       "empty": "La capacidad de inicio está libre por ahora. No hay inicios pendientes en este host.",
       "action": {
         "open": "Abrir",
-        "goToWorkspace": "Ir al espacio de trabajo"
+        "goToWorkspace": "Ir al espacio de trabajo",
+        "goToRun": "Ir a la ejecución"
       },
       "source": {
         "interactive": "Espacio de trabajo",

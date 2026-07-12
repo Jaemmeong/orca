@@ -1864,6 +1864,11 @@ app.whenReady().then(async () => {
     // Why: desktop clients may mirror remote-host automations, but only a
     // server process should execute schedules owned by `remote_host_service`.
     allowRemoteHostScheduling: isServeMode,
+    // U6: resolve-only classification of the automation's agent BEFORE dispatch,
+    // so a deleted/disabled/unbuildable agent records a structured failure and
+    // spawns no terminal (both dispatch paths and both workspace modes).
+    classifyAgentLaunch: (automation, run, target) =>
+      runtimeService.classifyAgentLaunchForAutomation(automation.agentId, target.repo, run.id),
     headlessDispatcher: isServeMode
       ? async ({ automation, run, target }) => {
           const terminalSnapshotLimit = 2_000

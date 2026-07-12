@@ -52,7 +52,10 @@ export type ReconcileScopePersistence = {
 export type ReconcileAgentLaunchDeps = {
   operationStore: AgentLaunchOperationStore
   resolveLiveness: (pending: PendingAgentLaunchSnapshot) => ResolvedLaunchLiveness
-  persistenceFor: (scope: string) => ReconcileScopePersistence
+  // Routes on the pending's INTENT (not just its scope string) so background,
+  // automation, orchestration, and worktree launches land in their own owner
+  // record even when two owners happen to share a scope id namespace.
+  persistenceFor: (pending: PendingAgentLaunchSnapshot) => ReconcileScopePersistence
   settleBoundary: (launchToken: string, settlement: 'registered' | 'failed') => void
   mintFailureId: () => string
   now?: () => number
@@ -93,7 +96,7 @@ export function reconcileOnePendingAgentLaunch(
   }
   const liveness = deps.resolveLiveness(pending)
   const outcome = reconcileAgentLaunchLiveness(toProviderLiveness(liveness))
-  const persistence = deps.persistenceFor(pending.scope)
+  const persistence = deps.persistenceFor(pending)
   const liveTerminalId = liveness.kind === 'live' ? liveness.terminalId : null
 
   if (outcome.kind === 'launched') {

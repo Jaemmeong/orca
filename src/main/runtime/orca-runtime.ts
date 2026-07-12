@@ -73,6 +73,7 @@ import type {
   Automation,
   AutomationCreateInput,
   AutomationRun,
+  AutomationRunStatus,
   AutomationUpdateInput,
   AutomationWorkspaceMode
 } from '../../shared/automations-types'
@@ -672,6 +673,7 @@ import {
 import { normalizeSparseDirectories } from '../ipc/sparse-checkout-directories'
 import type { Store } from '../persistence'
 import { getOrCreateAgentCatalogService } from '../agent-launch/agent-catalog-service'
+import { registerOrchestrationOwnerScanner } from '../agent-launch/agent-catalog-owner-scanners'
 import { getHostAgentLaunchBoundary } from '../agent-launch/agent-launch-boundary-host'
 import { buildPendingAgentLaunchSummary } from '../agent-launch/agent-launch-pending-summary-host'
 import type { PendingAgentLaunchSummary } from '../../shared/agent-launch-pending-summary'
@@ -726,6 +728,13 @@ import {
   runForgetUnknownAgentLaunch,
   type ForgetUnknownAgentLaunchResult
 } from '../agent-launch/agent-launch-worktree-forget'
+import { reconcileAllPendingAgentLaunches } from '../agent-launch/agent-launch-worktree-reconcile-writer'
+import type { ReconcileScopePersistence } from '../agent-launch/agent-launch-worktree-reconcile-writer'
+import { buildReconcileAgentLaunchDeps } from '../agent-launch/agent-launch-reconcile-runtime-deps'
+import type { ReconcileIntentRouterArms } from '../agent-launch/agent-launch-reconcile-intent-router'
+import { getHostBackgroundAgentLaunchStore } from '../agent-launch/background-agent-launch-store-host'
+import type { AgentLaunchExecutionHostId } from '../../shared/agent-launch-host-contract'
+import type { PendingAgentLaunchSnapshot } from '../agent-launch/agent-launch-operation-store'
 import type { SettledAgentLaunchOperation } from '../agent-launch/agent-launch-operation-store'
 
 /** The ok arm of a two-stage worktree-create launch prepare: capacity is
@@ -2776,6 +2785,16 @@ export class OrcaRuntimeService {
       this.agentCatalogSettingsUnsubscribe = this.agentCatalogStore.onSettingsChanged((updates) => {
         this.emitAgentCatalogRevisionEvents(updates)
       })
+      // Why (§U6): the orchestration dispatch store lives on this runtime, so its
+      // tombstone-reference scanner must register here (not in the store-only
+      // built-in pass). Reads the durable dispatch db so a custom id referenced by
+      // a persisted dispatch retains its tombstone across reload; force-loading it
+      // during the rare delete-time scan is intentional so an on-disk reference
+      // from a prior session is never missed.
+      registerOrchestrationOwnerScanner(
+        getOrCreateAgentCatalogService(this.agentCatalogStore).tombstoneReferenceIndex,
+        () => this.getOrchestrationDb().referencedRequestedAgents()
+      )
     }
   }
 
@@ -13917,13 +13936,14 @@ export class OrcaRuntimeService {
    *  (null), so the conversion moves resolution authority into the resolver without
    *  changing the derived target. One-release shim; removed with the legacy
    *  startupAgent/startupDraft fields. */
-  private resolveLegacyStartupPlan(
-    repo: Repo,
-    request: AgentLaunchSpawnRequest
-  ): ResolveAgentLaunchPlanResult {
+  /** The resolve-only spawn target for a repo: platform/shell/host derived from the
+   *  repo descriptor, detection + target home the honest unknowns the legacy
+   *  builders used (null). Shared by the legacy startup shim and the automation
+   *  classifier so both resolve against the same derived target. */
+  private buildResolveOnlySpawnTarget(repo: Repo): AgentLaunchSpawnTarget {
     const descriptor = this.buildRepoAgentLaunchDescriptor(repo)
     const confidentiality = defaultTransportConfidentiality(descriptor)
-    const target: AgentLaunchSpawnTarget = {
+    return {
       platform: platformForDescriptor(descriptor),
       ...(descriptor.shell ? { shell: descriptor.shell } : {}),
       isRemote: isRemoteForDescriptor(descriptor),
@@ -13934,6 +13954,12 @@ export class OrcaRuntimeService {
         ? { transportConfidentialityAvailable: confidentiality }
         : {})
     }
+  }
+
+  private resolveLegacyStartupPlan(
+    repo: Repo,
+    request: AgentLaunchSpawnRequest
+  ): ResolveAgentLaunchPlanResult {
     return resolveAgentLaunchStartupPlanWithoutAdmission(
       {
         boundary: getHostAgentLaunchBoundary(),
@@ -13943,12 +13969,46 @@ export class OrcaRuntimeService {
       {
         request,
         intent: { kind: 'interactive', client: 'desktop' },
-        target,
+        target: this.buildResolveOnlySpawnTarget(repo),
         variables: {},
         scope: 'legacy-startup',
         principal: { kind: 'local' }
       }
     )
+  }
+
+  /** Resolve-only classification of an automation's agent identity (U6). Reuses
+   *  the resolve-only path (no PTY, no admission) so a deleted/disabled/unbuildable
+   *  custom agent surfaces a structured failure the automation run records instead
+   *  of a bare spawn error. Returns null when the launch would resolve, or when the
+   *  resolver reports a request error (not a launch failure) — the real launch then
+   *  surfaces that. Never spawns anything. */
+  classifyAgentLaunchForAutomation(
+    agent: TuiAgent,
+    repo: Repo,
+    runId: string
+  ): AgentLaunchFailure | null {
+    const result = resolveAgentLaunchStartupPlanWithoutAdmission(
+      {
+        boundary: getHostAgentLaunchBoundary(),
+        getSettings: () => this.requireStore().getSettings(),
+        getCatalogRevision: () => this.requireStore().getSettings().agentCatalogRevision ?? 1
+      },
+      {
+        request: { selection: { kind: 'agent', agent }, prompt: '', allowEmptyPromptLaunch: true },
+        intent: { kind: 'automation', runId },
+        target: this.buildResolveOnlySpawnTarget(repo),
+        variables: {},
+        scope: `automation:${runId}`,
+        principal: { kind: 'local' }
+      }
+    )
+    if (result.ok || !('failure' in result)) {
+      return null
+    }
+    // Return the PLAIN failure — the service stamps the persisted wrapper at its
+    // single persist point (ledger #12), so the classifier never mints here.
+    return result.failure
   }
 
   private async buildStartupForDraft(
@@ -17735,6 +17795,166 @@ export class OrcaRuntimeService {
     })
   }
 
+  /** The worktree launch-card writer for reconciliation. settleLaunched clears the
+   *  public pending; settleFailed records the durable failure and clears pending;
+   *  markUnknown records the failure but KEEPS pending (coexistence rule). */
+  private worktreeReconcilePersistence(worktreeId: string): ReconcileScopePersistence {
+    const store = this.requireStore()
+    const repoId = splitWorktreeId(worktreeId)?.repoId
+    const notify = (): void => {
+      if (repoId) {
+        this.notifyWorktreesChanged(repoId)
+      }
+    }
+    return {
+      settleLaunched: () => {
+        store.setWorktreeMeta(worktreeId, { pendingAgentLaunch: undefined })
+        notify()
+      },
+      settleFailed: (failure) => {
+        store.setWorktreeMeta(worktreeId, {
+          agentLaunchFailure: failure,
+          pendingAgentLaunch: undefined
+        })
+        notify()
+      },
+      markUnknown: (failure) => {
+        store.setWorktreeMeta(worktreeId, { agentLaunchFailure: failure })
+        notify()
+      }
+    }
+  }
+
+  /** The background-attempt store's reconcile slice, wrapped to re-notify the
+   *  attempt's worktree so a settled/unknown background launch surfaces in the
+   *  client's Worktree.backgroundAgentLaunches projection. */
+  private backgroundReconcilePersistence(attemptId: string): ReconcileScopePersistence {
+    const bgStore = getHostBackgroundAgentLaunchStore()
+    const slice = bgStore.persistenceForAttempt(attemptId)
+    const notify = (): void => {
+      const worktreeId = bgStore.get(attemptId)?.worktreeId
+      const repoId = worktreeId ? splitWorktreeId(worktreeId)?.repoId : undefined
+      if (repoId) {
+        this.notifyWorktreesChanged(repoId)
+      }
+    }
+    return {
+      settleLaunched: () => {
+        slice.settleLaunched()
+        notify()
+      },
+      settleFailed: (failure) => {
+        slice.settleFailed(failure)
+        notify()
+      },
+      markUnknown: (failure) => {
+        slice.markUnknown(failure)
+        notify()
+      }
+    }
+  }
+
+  /** Automation-run reconcile slice. Additive: the structured launch failure is
+   *  written/cleared while the generic `error` string is untouched. settleLaunched
+   *  and markUnknown preserve the run's current status (only the failure card
+   *  changes); settleFailed is the hard dispatch_failed transition. */
+  private automationReconcilePersistence(runId: string): ReconcileScopePersistence {
+    const store = this.requireStore()
+    const currentStatus = (): AutomationRunStatus | undefined =>
+      store.listAutomationRuns().find((run) => run.id === runId)?.status
+    return {
+      settleLaunched: () => {
+        const status = currentStatus()
+        if (status) {
+          store.updateAutomationRun({ runId, status, agentLaunchFailure: null })
+        }
+      },
+      settleFailed: (failure) => {
+        store.updateAutomationRun({
+          runId,
+          status: 'dispatch_failed',
+          error: failure.code,
+          agentLaunchFailure: failure
+        })
+      },
+      markUnknown: (failure) => {
+        const status = currentStatus()
+        if (status) {
+          store.updateAutomationRun({ runId, status, agentLaunchFailure: failure })
+        }
+      }
+    }
+  }
+
+  /** Orchestration-dispatch reconcile slice. settleLaunched clears the launch card
+   *  keeping the dispatch 'dispatched'; settleFailed routes through failDispatch
+   *  (retry/circuit-break preserved); markUnknown writes the card without settling
+   *  (coexistence). No-ops when the orchestration db is unavailable. */
+  private orchestrationReconcilePersistence(dispatchId: string): ReconcileScopePersistence {
+    const db = this.getOrchestrationDbIfAvailable()
+    return {
+      settleLaunched: () => {
+        db?.clearDispatchLaunchFailure(dispatchId)
+      },
+      settleFailed: (failure) => {
+        db?.failDispatch(dispatchId, failure.code, failure)
+      },
+      markUnknown: (failure) => {
+        db?.markDispatchLaunchUnknown(dispatchId, failure)
+      }
+    }
+  }
+
+  /** Reconcile every pending agent launch against the current live-terminal view
+   *  (U6). Settles-only-on-provider-events: `isHostAuthoritative` names the hosts
+   *  this pass can speak for (a non-live pending on such a host is authoritatively
+   *  `absent`; every other host stays `unknown`, non-retryable, until its own
+   *  reconnect re-probes). Never polls, never spawns/kills. Routes each settled
+   *  outcome to its owner record by launch intent. */
+  private reconcilePendingAgentLaunches(
+    isHostAuthoritative: (hostId: AgentLaunchExecutionHostId) => boolean,
+    filter?: (pending: PendingAgentLaunchSnapshot) => boolean
+  ): void {
+    if (!this.store) {
+      return
+    }
+    const arms: ReconcileIntentRouterArms = {
+      worktree: (id) => this.worktreeReconcilePersistence(id),
+      automation: (id) => this.automationReconcilePersistence(id),
+      orchestration: (id) => this.orchestrationReconcilePersistence(id),
+      background: (id) => this.backgroundReconcilePersistence(id)
+    }
+    const deps = buildReconcileAgentLaunchDeps({
+      operationStore: getHostAgentLaunchOperationStore(),
+      liveTerminalByToken: (launchToken) => {
+        for (const pty of this.ptysById.values()) {
+          if (pty.launchToken === launchToken && pty.connected) {
+            return { ptyId: pty.ptyId, worktreeId: pty.worktreeId }
+          }
+        }
+        return null
+      },
+      isHostAuthoritative,
+      expectedWorktreeId: (pending) => {
+        switch (pending.intent) {
+          case 'interactive':
+          case 'cli':
+          case 'resume':
+            return pending.scope
+          case 'background':
+            return getHostBackgroundAgentLaunchStore().get(pending.scope)?.worktreeId ?? null
+          default:
+            return null
+        }
+      },
+      arms,
+      settleBoundary: (launchToken, settlement) =>
+        getHostAgentLaunchBoundary().settleAgentLaunch(launchToken, settlement),
+      mintFailureId: () => randomUUID()
+    })
+    reconcileAllPendingAgentLaunches(deps, filter)
+  }
+
   /** Reissue the result a settled retry ledger entry references: the current
    *  durable failure (or stale if it rotated out from under the reference), the
    *  reissued launched receipt from private terminal attribution, or a benign
@@ -20972,6 +21192,12 @@ export class OrcaRuntimeService {
     targetWorktreeId: string | null = null
   ): Promise<Set<string> | null> {
     if (!this.ptyController?.listProcesses) {
+      // No controller: local terminals are purely in-process and died with main,
+      // so a non-live local pending launch is authoritatively absent. Full-refresh
+      // only — a scoped refresh does not re-list every host.
+      if (targetWorktreeId === null) {
+        this.reconcilePendingAgentLaunches((hostId) => hostId === 'local')
+      }
       return null
     }
     const sessionsResult = await withTimeoutResult(
@@ -21009,6 +21235,14 @@ export class OrcaRuntimeService {
       }
     }
     this.pruneDisconnectedPtyRecords()
+    if (targetWorktreeId === null) {
+      // Provider terminal-list event: the controller just re-listed and adopted
+      // its sessions, so local (in-process died with main; daemon re-adopted) is
+      // now authoritatively listable — settle absent launches. Remote SSH/runtime
+      // hosts stay 'unknown' until their own reconnect re-probes (contract
+      // 487-513). Idempotent + pending-gated, so this is not liveness polling.
+      this.reconcilePendingAgentLaunches((hostId) => hostId === 'local')
+    }
     return livePtyIds
   }
 

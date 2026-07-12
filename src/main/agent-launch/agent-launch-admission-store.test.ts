@@ -5,6 +5,7 @@ import {
   LaunchAdmissionCoordinator,
   MAX_PENDING_LAUNCHES_PER_HOST,
   MAX_PENDING_LAUNCHES_PER_PRINCIPAL,
+  MAX_PENDING_LAUNCHES_PER_WORKTREE,
   MAX_PENDING_LAUNCHES_REMOTE_TOTAL,
   type AdmissionPrincipal
 } from './agent-launch-admission-store'
@@ -26,11 +27,17 @@ const SNAPSHOT: AgentLaunchSnapshot = Object.freeze({
   }
 } as const) as unknown as AgentLaunchSnapshot
 
-function admitOne(store: AgentLaunchAdmissionStore, principal: AdmissionPrincipal, scope = 'wt-1') {
+function admitOne(
+  store: AgentLaunchAdmissionStore,
+  principal: AdmissionPrincipal,
+  scope = 'wt-1',
+  worktreeId: string | null = null
+) {
   return store.admit({
     principal,
     intent: 'interactive',
     scope,
+    worktreeId,
     fingerprint: 'fp',
     snapshot: SNAPSHOT,
     admittedAt: 1
@@ -69,6 +76,54 @@ describe('AgentLaunchAdmissionStore capacity', () => {
     }
     expect(localAdmitted).toBe(MAX_PENDING_LAUNCHES_PER_HOST - MAX_PENDING_LAUNCHES_REMOTE_TOTAL)
     expect(store.pendingCount()).toBe(MAX_PENDING_LAUNCHES_PER_HOST)
+  })
+
+  it('caps a single worktree at 8 committed launches, independent of other worktrees', () => {
+    const store = new AgentLaunchAdmissionStore()
+    const principal: AdmissionPrincipal = { kind: 'local' }
+    for (let i = 0; i < MAX_PENDING_LAUNCHES_PER_WORKTREE; i += 1) {
+      expect(admitOne(store, principal, `run-${i}`, 'wt-busy').ok).toBe(true)
+    }
+    expect(store.pendingForWorktree('wt-busy')).toBe(MAX_PENDING_LAUNCHES_PER_WORKTREE)
+    // The 9th launch into the same worktree is rejected before any provider I/O.
+    expect(admitOne(store, principal, 'run-9', 'wt-busy')).toMatchObject({
+      ok: false,
+      failure: { code: 'launch_capacity_exceeded', reason: 'capacity' }
+    })
+    // A different worktree still has its own capacity.
+    expect(admitOne(store, principal, 'run-other', 'wt-quiet').ok).toBe(true)
+    // A launch that names no worktree never trips the per-worktree cap.
+    expect(admitOne(store, principal, 'no-worktree', null).ok).toBe(true)
+  })
+
+  it('releasing a worktree launch frees exactly one per-worktree slot', () => {
+    const store = new AgentLaunchAdmissionStore()
+    const principal: AdmissionPrincipal = { kind: 'local' }
+    const admitted = admitOne(store, principal, 'run-0', 'wt-busy')
+    for (let i = 1; i < MAX_PENDING_LAUNCHES_PER_WORKTREE; i += 1) {
+      admitOne(store, principal, `run-${i}`, 'wt-busy')
+    }
+    expect(admitOne(store, principal, 'run-9', 'wt-busy').ok).toBe(false)
+    if (!admitted.ok) {
+      throw new Error('fixture admit failed')
+    }
+    expect(store.release(admitted.record.launchToken)).toBe(true)
+    expect(store.pendingForWorktree('wt-busy')).toBe(MAX_PENDING_LAUNCHES_PER_WORKTREE - 1)
+    // The freed slot admits again.
+    expect(admitOne(store, principal, 'run-9', 'wt-busy').ok).toBe(true)
+  })
+
+  it('rebuildFrom restores per-worktree counts from durable records', () => {
+    const store = new AgentLaunchAdmissionStore()
+    const a = admitOne(store, { kind: 'local' }, 'run-a', 'wt-busy')
+    const b = admitOne(store, { kind: 'local' }, 'run-b', 'wt-busy')
+    const c = admitOne(store, { kind: 'local' }, 'run-c', null)
+    if (!a.ok || !b.ok || !c.ok) {
+      throw new Error('fixture admit failed')
+    }
+    const rebuilt = new AgentLaunchAdmissionStore()
+    rebuilt.rebuildFrom([a.record, b.record, c.record])
+    expect(rebuilt.pendingForWorktree('wt-busy')).toBe(2)
   })
 
   it('release frees exactly one reservation and unknown tokens are no-ops', () => {
@@ -142,11 +197,13 @@ describe('AgentLaunchAdmissionStore reservations', () => {
   function admitReservedOne(
     store: AgentLaunchAdmissionStore,
     reservationId: string,
-    scope = 'wt-1'
+    scope = 'wt-1',
+    worktreeId: string | null = null
   ) {
     return store.admitReserved(reservationId, {
       intent: 'interactive',
       scope,
+      worktreeId,
       fingerprint: 'fp',
       snapshot: SNAPSHOT,
       admittedAt: 1
@@ -169,6 +226,26 @@ describe('AgentLaunchAdmissionStore reservations', () => {
     // Converting a hold does not re-increment: still exactly one for the principal.
     expect(store.pendingForPrincipal({ kind: 'local' })).toBe(1)
     expect(store.pendingCount()).toBe(1)
+  })
+
+  it('admitReserved commits against the now-known worktree and counts toward its cap', () => {
+    const store = new AgentLaunchAdmissionStore()
+    const reservation = reserveOne(store, { kind: 'local' })
+    expect(reservation.ok).toBe(true)
+    if (!reservation.ok) {
+      return
+    }
+    // A reservation names no worktree, so the per-worktree count is still 0.
+    expect(store.pendingForWorktree('wt-new')).toBe(0)
+    const admitted = admitReservedOne(
+      store,
+      reservation.reservation.reservationId,
+      'wt-new',
+      'wt-new'
+    )
+    expect(admitted.ok).toBe(true)
+    // Committing binds the launch to the freshly-created worktree.
+    expect(store.pendingForWorktree('wt-new')).toBe(1)
   })
 
   it('held reservations count toward the per-principal cap', () => {

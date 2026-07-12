@@ -15,6 +15,7 @@ import type {
   CoordinatorRun
 } from './types'
 import { buildOrchestrationTaskDisplayMetadata } from '../../../shared/orchestration-task-display'
+import type { PersistedAgentLaunchFailure } from '../../../shared/agent-launch-contract'
 
 export type {
   MessageType,
@@ -41,7 +42,10 @@ function generateId(prefix: string): string {
 // the terminal that created a task so task-record worktree creation can infer
 // the parent workspace even when no dispatch context exists. v4 → v5 adds
 // explicit task_title/display_name fields for orchestration worker UI labels.
-const SCHEMA_VERSION = 5
+// v5 → v6 (U6) widens the dispatch status CHECK to include 'forgotten' and adds
+// nullable requested_agent/base_agent/agent_launch_failure columns — a table
+// rebuild because SQLite cannot ALTER a CHECK constraint.
+const SCHEMA_VERSION = 6
 
 export class OrchestrationDb {
   private db: Database.Database
@@ -104,17 +108,23 @@ export class OrchestrationDb {
       CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 
       CREATE TABLE IF NOT EXISTS dispatch_contexts (
-        id                  TEXT PRIMARY KEY,
-        task_id             TEXT NOT NULL,
-        assignee_handle     TEXT,
-        status              TEXT NOT NULL DEFAULT 'pending'
-          CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken')),
-        failure_count       INTEGER NOT NULL DEFAULT 0,
-        last_failure        TEXT,
-        dispatched_at       TEXT,
-        completed_at        TEXT,
-        created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-        last_heartbeat_at   TEXT
+        id                    TEXT PRIMARY KEY,
+        task_id               TEXT NOT NULL,
+        assignee_handle       TEXT,
+        status                TEXT NOT NULL DEFAULT 'pending'
+          CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken', 'forgotten')),
+        failure_count         INTEGER NOT NULL DEFAULT 0,
+        last_failure          TEXT,
+        dispatched_at         TEXT,
+        completed_at          TEXT,
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        last_heartbeat_at     TEXT,
+        -- U6: nullable requested/base identity validate launch ownership;
+        -- agent_launch_failure is the JSON structured launch failure alongside
+        -- the retained generic last_failure string.
+        requested_agent       TEXT,
+        base_agent            TEXT,
+        agent_launch_failure  TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_dispatch_task ON dispatch_contexts(task_id);
@@ -244,6 +254,44 @@ export class OrchestrationDb {
         }
         if (!this.hasColumn('tasks', 'display_name')) {
           this.db.exec(`ALTER TABLE tasks ADD COLUMN display_name TEXT`)
+        }
+      }
+      // v5 → v6: rebuild dispatch_contexts to widen the status CHECK for the
+      // additive 'forgotten' disposition and add the U6 identity/launch-failure
+      // columns. Guarded on the new column so a fresh v6 db (already created with
+      // the new schema by createTables) skips the rebuild.
+      if (current < 6) {
+        if (!this.hasColumn('dispatch_contexts', 'requested_agent')) {
+          this.db.exec(`
+            CREATE TABLE dispatch_contexts_new (
+              id                    TEXT PRIMARY KEY,
+              task_id               TEXT NOT NULL,
+              assignee_handle       TEXT,
+              status                TEXT NOT NULL DEFAULT 'pending'
+                CHECK(status IN ('pending', 'dispatched', 'completed', 'failed', 'circuit_broken', 'forgotten')),
+              failure_count         INTEGER NOT NULL DEFAULT 0,
+              last_failure          TEXT,
+              dispatched_at         TEXT,
+              completed_at          TEXT,
+              created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+              last_heartbeat_at     TEXT,
+              requested_agent       TEXT,
+              base_agent            TEXT,
+              agent_launch_failure  TEXT
+            );
+            INSERT INTO dispatch_contexts_new (
+              id, task_id, assignee_handle, status, failure_count, last_failure,
+              dispatched_at, completed_at, created_at, last_heartbeat_at
+            )
+            SELECT
+              id, task_id, assignee_handle, status, failure_count, last_failure,
+              dispatched_at, completed_at, created_at, last_heartbeat_at
+            FROM dispatch_contexts;
+            DROP TABLE dispatch_contexts;
+            ALTER TABLE dispatch_contexts_new RENAME TO dispatch_contexts;
+            CREATE INDEX idx_dispatch_task ON dispatch_contexts(task_id);
+            CREATE INDEX idx_dispatch_status ON dispatch_contexts(status);
+          `)
         }
       }
       this.createUndeliveredInboxIndexIfPossible()
@@ -568,7 +616,13 @@ export class OrchestrationDb {
 
   // ── Dispatch Contexts ──
 
-  createDispatchContext(taskId: string, assigneeHandle: string): DispatchContextRow {
+  createDispatchContext(
+    taskId: string,
+    assigneeHandle: string,
+    // U6: the host-validated requested/base identity for this dispatch, so a
+    // stale custom id is recorded and validated against launch ownership.
+    identity?: { requestedAgent: string | null; baseAgent: string | null }
+  ): DispatchContextRow {
     const task = this.getTask(taskId)
     if (!task) {
       throw new Error(`Task not found: ${taskId}`)
@@ -599,10 +653,18 @@ export class OrchestrationDb {
     const id = generateId('ctx')
     this.db
       .prepare(
-        `INSERT INTO dispatch_contexts (id, task_id, assignee_handle, status, failure_count, dispatched_at)
-         VALUES (?, ?, ?, 'dispatched', ?, datetime('now'))`
+        `INSERT INTO dispatch_contexts
+           (id, task_id, assignee_handle, status, failure_count, dispatched_at, requested_agent, base_agent)
+         VALUES (?, ?, ?, 'dispatched', ?, datetime('now'), ?, ?)`
       )
-      .run(id, taskId, assigneeHandle, priorFailures)
+      .run(
+        id,
+        taskId,
+        assigneeHandle,
+        priorFailures,
+        identity?.requestedAgent ?? null,
+        identity?.baseAgent ?? null
+      )
 
     this.db.prepare("UPDATE tasks SET status = 'dispatched' WHERE id = ?").run(taskId)
 
@@ -701,7 +763,14 @@ export class OrchestrationDb {
       .all(thresholdIso, thresholdIso) as DispatchContextRow[]
   }
 
-  failDispatch(ctxId: string, error: string): DispatchContextRow | undefined {
+  failDispatch(
+    ctxId: string,
+    error: string,
+    // U6: optional additive structured launch failure. The generic `error`
+    // string is always retained (last_failure) for old readers; the JSON column
+    // carries the code+hint recovery contract for U6 readers.
+    launchFailure?: PersistedAgentLaunchFailure
+  ): DispatchContextRow | undefined {
     const ctx = this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
       | DispatchContextRow
       | undefined
@@ -714,9 +783,15 @@ export class OrchestrationDb {
 
     this.db
       .prepare(
-        'UPDATE dispatch_contexts SET status = ?, failure_count = ?, last_failure = ? WHERE id = ?'
+        'UPDATE dispatch_contexts SET status = ?, failure_count = ?, last_failure = ?, agent_launch_failure = ? WHERE id = ?'
       )
-      .run(newStatus, newFailureCount, error, ctxId)
+      .run(
+        newStatus,
+        newFailureCount,
+        error,
+        launchFailure ? JSON.stringify(launchFailure) : (ctx.agent_launch_failure ?? null),
+        ctxId
+      )
 
     // Why: set the task back to 'ready' (not 'pending') so the coordinator can
     // re-dispatch it on the next tick. The task's deps are already satisfied —
@@ -728,6 +803,76 @@ export class OrchestrationDb {
     return this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
       | DispatchContextRow
       | undefined
+  }
+
+  // U6: owner-authorized Forget of a dispatch stranded while liveness is unknown.
+  // The dispatch is kept 'dispatched' while liveness is unknown; forgetting it
+  // settles the terminal 'forgotten' disposition and moves the task to 'blocked'
+  // (not 'ready') because the old remote process may still exist — an explicit
+  // Retry is required. Never spawns/kills. Valid only from 'dispatched'.
+  forgetDispatch(ctxId: string): DispatchContextRow | undefined {
+    const ctx = this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
+      | DispatchContextRow
+      | undefined
+    if (!ctx || ctx.status !== 'dispatched') {
+      return undefined
+    }
+    this.db.prepare("UPDATE dispatch_contexts SET status = 'forgotten' WHERE id = ?").run(ctxId)
+    this.db.prepare("UPDATE tasks SET status = 'blocked' WHERE id = ?").run(ctx.task_id)
+    return this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
+      | DispatchContextRow
+      | undefined
+  }
+
+  // U6: reconcile settled the dispatch's launch as live — clear the structured
+  // launch failure card while keeping the dispatch 'dispatched'. Never touches
+  // status/failure_count/task (the dispatch is proceeding). The generic
+  // last_failure string is left as-is for old readers.
+  clearDispatchLaunchFailure(ctxId: string): DispatchContextRow | undefined {
+    const ctx = this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
+      | DispatchContextRow
+      | undefined
+    if (!ctx) {
+      return undefined
+    }
+    this.db
+      .prepare('UPDATE dispatch_contexts SET agent_launch_failure = NULL WHERE id = ?')
+      .run(ctxId)
+    return this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
+      | DispatchContextRow
+      | undefined
+  }
+
+  // U6: reconcile could not reach the dispatch's host — write the structured
+  // launch_state_unknown card WITHOUT settling. The dispatch stays 'dispatched'
+  // and the task is untouched (coexistence rule): only an explicit Forget or a
+  // later reconnect proof resolves it. No failure_count increment.
+  markDispatchLaunchUnknown(
+    ctxId: string,
+    failure: PersistedAgentLaunchFailure
+  ): DispatchContextRow | undefined {
+    const ctx = this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
+      | DispatchContextRow
+      | undefined
+    if (!ctx) {
+      return undefined
+    }
+    this.db
+      .prepare('UPDATE dispatch_contexts SET agent_launch_failure = ? WHERE id = ?')
+      .run(JSON.stringify(failure), ctxId)
+    return this.db.prepare('SELECT * FROM dispatch_contexts WHERE id = ?').get(ctxId) as
+      | DispatchContextRow
+      | undefined
+  }
+
+  // U6: requested identities across all dispatch rows, for the tombstone
+  // reference index's `orchestration` owner (§217). A dispatch that recorded a
+  // custom id keeps that id's tombstone retained until the row is pruned.
+  referencedRequestedAgents(): string[] {
+    const rows = this.db
+      .prepare('SELECT requested_agent FROM dispatch_contexts WHERE requested_agent IS NOT NULL')
+      .all() as { requested_agent: string }[]
+    return rows.map((row) => row.requested_agent)
   }
 
   // ── Decision Gates ──

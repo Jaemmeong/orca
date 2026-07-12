@@ -8,11 +8,12 @@ import type {
   TuiAgent,
   WorktreeMeta
 } from '../../shared/types'
-import type { Automation } from '../../shared/automations-types'
+import type { Automation, AutomationRun } from '../../shared/automations-types'
 import type { Store } from '../persistence'
 import { AgentCatalogService } from './agent-catalog-service'
 import { getHostAgentSessionRecordStore } from './agent-session-record-store-host'
 import type { HostSessionLaunchRecord } from './agent-session-record-store'
+import { getHostBackgroundAgentLaunchStore } from './background-agent-launch-store-host'
 
 const UUID_A = '01234567-89ab-4cde-8f01-23456789abcd'
 const UUID_B = 'fedcba98-7654-4321-8fed-cba987654321'
@@ -37,6 +38,7 @@ type StoreStubState = {
   settings: GlobalSettings
   repos: Repo[]
   automations: Automation[]
+  automationRuns?: AutomationRun[]
   worktreeMeta?: Record<string, WorktreeMeta>
   failAutomationScan?: boolean
   failWorktreeScan?: boolean
@@ -56,6 +58,7 @@ function makeStoreStub(state: StoreStubState): Store {
       }
       return state.automations
     },
+    listAutomationRuns: () => state.automationRuns ?? [],
     getAllWorktreeMeta: () => {
       if (state.failWorktreeScan) {
         throw new Error('store unavailable')
@@ -187,6 +190,34 @@ describe('tombstone reference GC across owners', () => {
     expect(summary).toContainEqual({ owner: 'automation', count: 1 })
   })
 
+  it('retains via a run launch-failure even after the definition agent changed, and prunes after the run clears', () => {
+    // The automation definition points at a live agent now, but a past run's
+    // structured launch failure still references the deleted custom id — the
+    // tombstone must stay retained until that run record is gone too.
+    const { service, state } = serviceWith({
+      settings: baseSettings({ deletedCustomTuiAgents: [tombstoneFor(deadId)] }),
+      automations: [{ id: 'auto-1', agentId: 'claude' } as unknown as Automation],
+      automationRuns: [
+        {
+          id: 'run-1',
+          agentLaunchFailure: {
+            version: 1,
+            code: 'base_agent_disabled',
+            requestedAgent: deadId,
+            failureId: 'rf-1',
+            intent: 'automation',
+            occurredAt: 1
+          }
+        } as unknown as AutomationRun
+      ]
+    })
+    expect(service.tombstoneReferenceIndex.countReferences(deadId)).toBe(1)
+    expect(service.getReferenceSummaries(deadId)).toContainEqual({ owner: 'automation', count: 1 })
+
+    state.automationRuns = []
+    expect(service.tombstoneReferenceIndex.countReferences(deadId)).toBe(0)
+  })
+
   it('counts workspace pending-launch and durable-failure references and prunes after the last clears', () => {
     const { service, state } = serviceWith({
       settings: baseSettings({ deletedCustomTuiAgents: [tombstoneFor(deadId)] }),
@@ -311,6 +342,52 @@ describe('session owner (host-private resume records)', () => {
   it('retains the tombstone when the session record store cannot be read', () => {
     const service = serviceWithTombstone()
     vi.spyOn(recordStore, 'referencedRequestedAgents').mockImplementation(() => {
+      throw new Error('store unavailable')
+    })
+    expect(service.tombstoneReferenceIndex.countReferences(deadId)).toBe('unknown')
+  })
+})
+
+describe('background owner (host-private generic launch attempts)', () => {
+  const attemptStore = getHostBackgroundAgentLaunchStore()
+  const deadId = customId('codex', UUID_B)
+
+  afterEach(() => {
+    // Host-wide singleton; clear seeded attempts between tests.
+    attemptStore.rebuildFrom([])
+    vi.restoreAllMocks()
+  })
+
+  function serviceWithTombstone(): AgentCatalogService {
+    const state: StoreStubState = {
+      settings: baseSettings({ deletedCustomTuiAgents: [tombstoneFor(deadId)] }),
+      repos: [],
+      automations: []
+    }
+    return new AgentCatalogService(makeStoreStub(state))
+  }
+
+  it('retains the tombstone while a background attempt references the custom id and prunes after it is gone', () => {
+    const service = serviceWithTombstone()
+
+    attemptStore.create({
+      attemptId: 'attempt-dead',
+      worktreeId: 'wt-bg',
+      operationId: 'op-1',
+      requestedAgent: deadId,
+      baseAgent: 'codex'
+    })
+    expect(service.tombstoneReferenceIndex.countReferences(deadId)).toBe(1)
+    expect(service.getReferenceSummaries(deadId)).toContainEqual({ owner: 'background', count: 1 })
+
+    // Pruning the last referencing attempt clears the reference.
+    attemptStore.rebuildFrom([])
+    expect(service.tombstoneReferenceIndex.countReferences(deadId)).toBe(0)
+  })
+
+  it('retains the tombstone when the background attempt store cannot be read', () => {
+    const service = serviceWithTombstone()
+    vi.spyOn(attemptStore, 'referencedRequestedAgents').mockImplementation(() => {
       throw new Error('store unavailable')
     })
     expect(service.tombstoneReferenceIndex.countReferences(deadId)).toBe('unknown')

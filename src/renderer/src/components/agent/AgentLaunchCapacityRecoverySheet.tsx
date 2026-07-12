@@ -14,9 +14,11 @@ import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import type { PendingAgentLaunchSummaryRow } from '../../../../shared/agent-launch-pending-summary'
 import {
+  capacityActionCopy,
   livenessCopy,
   resolveCapacityRowAction,
-  sourceKindCopy
+  sourceKindCopy,
+  type CapacityRecoveryRowAction
 } from '@/lib/agent-launch-capacity-recovery-rows'
 
 /** Localized "admitted N ago" for a row's admittedAt against a render-time now. */
@@ -50,11 +52,11 @@ function livenessToneClass(liveness: PendingAgentLaunchSummaryRow['liveness']): 
 function CapacityRecoveryRow({
   row,
   now,
-  onOpenWorktree
+  onAction
 }: {
   row: PendingAgentLaunchSummaryRow
   now: number
-  onOpenWorktree: (worktreeId: string) => void
+  onAction: (action: CapacityRecoveryRowAction) => void
 }): React.JSX.Element {
   const action = resolveCapacityRowAction(row)
   const source = sourceKindCopy(row.sourceKind)
@@ -75,18 +77,16 @@ function CapacityRecoveryRow({
           <span>{formatAdmittedAgo(row.admittedAt, now)}</span>
         </div>
       </div>
-      {action ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => onOpenWorktree(action.worktreeId)}
-        >
-          {row.liveness === 'live'
-            ? translate('agentLaunch.capacity.action.open', 'Open')
-            : translate('agentLaunch.capacity.action.goToWorkspace', 'Go to workspace')}
-        </Button>
-      ) : null}
+      {action
+        ? (() => {
+            const label = capacityActionCopy(action, row.liveness)
+            return (
+              <Button type="button" size="sm" variant="outline" onClick={() => onAction(action)}>
+                {translate(label.key, label.fallback)}
+              </Button>
+            )
+          })()
+        : null}
     </li>
   )
 }
@@ -102,6 +102,8 @@ export default function AgentLaunchCapacityRecoverySheet(): React.JSX.Element | 
   const target = useAppStore((s) => s.modalData.target as RuntimeClientTarget | undefined)
   const closeModal = useAppStore((s) => s.closeModal)
   const fetchSummary = useAppStore((s) => s.fetchPendingAgentLaunchSummary)
+  const setPendingAutomationRunNavigation = useAppStore((s) => s.setPendingAutomationRunNavigation)
+  const openAutomationsPage = useAppStore((s) => s.openAutomationsPage)
   const [rows, setRows] = useState<readonly PendingAgentLaunchSummaryRow[] | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
   const now = Date.now()
@@ -140,12 +142,23 @@ export default function AgentLaunchCapacityRecoverySheet(): React.JSX.Element | 
     }
   }, [open, target, fetchSummary])
 
-  const onOpenWorktree = useCallback(
-    (worktreeId: string) => {
+  const onAction = useCallback(
+    (action: CapacityRecoveryRowAction) => {
       closeModal()
-      activateAndRevealWorktree(worktreeId)
+      if (action.kind === 'open-worktree') {
+        activateAndRevealWorktree(action.worktreeId)
+        return
+      }
+      // Route to the owning automation run. The deep link keys off the run's own
+      // automation record (client-safe id), not the possibly-deleted per-run
+      // worktree, so new_per_run automations still resolve their owner.
+      setPendingAutomationRunNavigation({
+        automationId: action.automationId,
+        runId: action.runId
+      })
+      openAutomationsPage()
     },
-    [closeModal]
+    [closeModal, setPendingAutomationRunNavigation, openAutomationsPage]
   )
 
   if (!open) {
@@ -199,7 +212,7 @@ export default function AgentLaunchCapacityRecoverySheet(): React.JSX.Element | 
                   key={`${row.sourceKind}-${row.admittedAt}-${index}`}
                   row={row}
                   now={now}
-                  onOpenWorktree={onOpenWorktree}
+                  onAction={onAction}
                 />
               ))}
             </ul>

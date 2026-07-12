@@ -84,6 +84,7 @@ export class AgentLaunchBoundary {
           principal: args.principal,
           intent: original.policy.intent,
           scope: args.scope,
+          worktreeId: args.worktreeId ?? null,
           fingerprint: originalFingerprint,
           snapshot: original.snapshot,
           admittedAt: nowFn()
@@ -226,6 +227,7 @@ export class AgentLaunchBoundary {
         this.admissionStore.admitReserved(args.reservationId, {
           intent: original.policy.intent,
           scope: args.scope,
+          worktreeId: args.worktreeId ?? null,
           fingerprint: originalFingerprint,
           snapshot: original.snapshot,
           admittedAt: nowFn()

@@ -16,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   closeModal: vi.fn(),
   fetchPendingAgentLaunchSummary: vi.fn(),
   activateAndRevealWorktree: vi.fn(),
+  setPendingAutomationRunNavigation: vi.fn(),
+  openAutomationsPage: vi.fn(),
   onChanged: vi.fn((_cb: () => void) => () => {})
 }))
 
@@ -104,7 +106,9 @@ beforeEach(() => {
     activeModal: 'agent-launch-capacity-recovery',
     modalData: {},
     closeModal: mocks.closeModal,
-    fetchPendingAgentLaunchSummary: mocks.fetchPendingAgentLaunchSummary
+    fetchPendingAgentLaunchSummary: mocks.fetchPendingAgentLaunchSummary,
+    setPendingAutomationRunNavigation: mocks.setPendingAutomationRunNavigation,
+    openAutomationsPage: mocks.openAutomationsPage
   }
 })
 
@@ -151,6 +155,31 @@ describe('AgentLaunchCapacityRecoverySheet', () => {
     })
     expect(mocks.closeModal).toHaveBeenCalledTimes(1)
     expect(mocks.activateAndRevealWorktree).toHaveBeenCalledWith('repo1::/tmp/wt')
+  })
+
+  it('renders a run row and navigates to its owning automation run on action', async () => {
+    summaryBox.rows = [
+      {
+        sourceKind: 'automation',
+        baseHarness: 'claude',
+        targetHostDisplayName: 'This Mac',
+        admittedAt: Date.now(),
+        liveness: 'absent',
+        deepLink: { kind: 'run', runId: 'run-1', automationId: 'auto-1' }
+      }
+    ]
+    await render()
+
+    await act(async () => {
+      buttonByLabel('Go to run').click()
+    })
+    expect(mocks.closeModal).toHaveBeenCalledTimes(1)
+    expect(mocks.activateAndRevealWorktree).not.toHaveBeenCalled()
+    expect(mocks.setPendingAutomationRunNavigation).toHaveBeenCalledWith({
+      automationId: 'auto-1',
+      runId: 'run-1'
+    })
+    expect(mocks.openAutomationsPage).toHaveBeenCalledTimes(1)
   })
 
   it('labels the action Open for a live row', async () => {

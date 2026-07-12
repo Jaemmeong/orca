@@ -12,6 +12,7 @@ import type {
   AutomationDispatchResult,
   AutomationPrecheckResult
 } from '../../../shared/automations-types'
+import { spawnOutcomeLaunchFailure } from '@/lib/agent-launch-spawn-outcome-error'
 import { getAutomationRunRepoId } from '../../../shared/automation-run-identity'
 import {
   didAutomationPrecheckPass,
@@ -498,13 +499,24 @@ export function useAutomationDispatchEvents(): void {
             currentState.setActiveTabType(focusBeforeDispatch.activeTabType)
           }
         } catch (error) {
+          // Why (U6-D): a spawn-time failure on the renderer-assisted path carries
+          // the host's typed outcome. Persist its structured (plain) failure so
+          // the run shows a recovery card; the generic string stays for old
+          // readers. An untyped throw or control-plane rejection writes the string
+          // only. The durable wrapper (version/failureId/intent/occurredAt) is
+          // minted host-side at the single markDispatchResult persist authority,
+          // so the failureId can't drift — the renderer passes the plain failure.
+          // (Known pre-dispatch failures never reach here — the host's resolve-only
+          // gate classifies them before this branch, no pty involved.)
+          const agentLaunchFailure = spawnOutcomeLaunchFailure(error)
           await markDispatchResult({
             runId: run.id,
             status: 'dispatch_failed',
             workspaceId: dispatchWorkspaceId,
             workspaceDisplayName: dispatchWorkspaceDisplayName,
             precheckResult,
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
+            ...(agentLaunchFailure ? { agentLaunchFailure } : {})
           })
         }
       }

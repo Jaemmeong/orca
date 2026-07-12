@@ -9,6 +9,7 @@ import {
   type AgentTombstoneReferenceIndex
 } from './agent-tombstone-reference-index'
 import { getHostAgentSessionRecordStore } from './agent-session-record-store-host'
+import { getHostBackgroundAgentLaunchStore } from './background-agent-launch-store-host'
 
 /** Register the desktop's built-in reference owners against the shared index.
  *  Later units add their own owner scanners through the same index. */
@@ -97,13 +98,16 @@ export function registerBuiltInOwnerScanners(
     owner: 'automation',
     scan: () => {
       try {
-        const automations = store.listAutomations()
-        return {
-          ok: true,
-          referenceCounts: countReferencedCustomIds(
-            automations.map((automation) => automation.agentId)
-          )
+        const references: unknown[] = store
+          .listAutomations()
+          .map((automation) => automation.agentId)
+        // U6: a persisted run's structured launch failure records the requested
+        // identity, which survives even if the definition's agent later changes,
+        // so a deleted custom id stays retained while any run failure names it.
+        for (const run of store.listAutomationRuns()) {
+          references.push(run.agentLaunchFailure?.requestedAgent)
         }
+        return { ok: true, referenceCounts: countReferencedCustomIds(references) }
       } catch {
         return { ok: false }
       }
@@ -142,6 +146,57 @@ export function registerBuiltInOwnerScanners(
             getHostAgentSessionRecordStore().referencedRequestedAgents()
           )
         }
+      } catch {
+        return { ok: false }
+      }
+    }
+  })
+  index.register({
+    // §266/§217 `background` = generic unattended launches with no automation run
+    // or orchestration dispatch to own them. Each attempt records its requested
+    // identity, and a forgotten attempt still references it until pruned, so a
+    // deleted custom id's tombstone stays retained while any attempt names it.
+    owner: 'background',
+    scan: () => {
+      try {
+        return {
+          ok: true,
+          referenceCounts: countReferencedCustomIds(
+            getHostBackgroundAgentLaunchStore().referencedRequestedAgents()
+          )
+        }
+      } catch {
+        return { ok: false }
+      }
+    }
+  })
+}
+
+// Why: the orchestration dispatch store is per-runtime (not a host singleton like
+// session/background), so its scanner registers from the runtime rather than the
+// built-in pass. The guard keeps that registration idempotent even if several
+// runtimes share one catalog service (its store), so a shared index never
+// double-counts a dispatch reference.
+const orchestrationScannerRegistered = new WeakSet<AgentTombstoneReferenceIndex>()
+
+/** §266/§217 `orchestration` = coordinator worker dispatches. Each dispatch row
+ *  records its requested identity, so a deleted custom id's tombstone stays
+ *  retained while any dispatch still names it. `referencedRequestedAgents` must
+ *  read the durable dispatch store (surviving reload); a read failure returns
+ *  `ok:false` so the tombstone is conservatively retained. */
+export function registerOrchestrationOwnerScanner(
+  index: AgentTombstoneReferenceIndex,
+  referencedRequestedAgents: () => Iterable<unknown>
+): void {
+  if (orchestrationScannerRegistered.has(index)) {
+    return
+  }
+  orchestrationScannerRegistered.add(index)
+  index.register({
+    owner: 'orchestration',
+    scan: () => {
+      try {
+        return { ok: true, referenceCounts: countReferencedCustomIds(referencedRequestedAgents()) }
       } catch {
         return { ok: false }
       }

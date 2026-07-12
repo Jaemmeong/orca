@@ -18,6 +18,10 @@ import type { BuiltInTuiAgent } from '../../shared/types'
 export const MAX_PENDING_LAUNCHES_PER_HOST = 256
 export const MAX_PENDING_LAUNCHES_PER_PRINCIPAL = 64
 export const MAX_PENDING_LAUNCHES_REMOTE_TOTAL = 192
+// Per-worktree bound (G6): unattended launches (orchestration workers, automation
+// runs, background attempts) can pile many pending launches into ONE worktree, so
+// a worktree-scoped cap stops a single workspace from monopolizing host capacity.
+export const MAX_PENDING_LAUNCHES_PER_WORKTREE = 8
 
 /** Stable authenticated principal: device or runtime-host id for remote
  *  callers, the local desktop/host otherwise. Never a per-connection value. */
@@ -29,6 +33,9 @@ export type AdmittedLaunchRecord = {
   intent: AgentLaunchIntentKind
   /** Owner scope for reconciliation joins (worktree id, pane key, run id …). */
   scope: string
+  /** Worktree this launch targets, for the per-worktree cap. Null when the
+   *  launch names no worktree (e.g. a not-yet-created two-stage worktree). */
+  worktreeId: string | null
   fingerprint: string
   snapshot: AgentLaunchSnapshot
   admittedAt: number
@@ -56,6 +63,10 @@ export type AdmissionCapacityRow = {
 export type AgentLaunchAdmitInput = {
   intent: AgentLaunchIntentKind
   scope: string
+  /** Target worktree for the per-worktree cap, or null when the launch names no
+   *  worktree yet (a fresh two-stage creation counts trivially against a brand-
+   *  new worktree, so a null-worktree reservation never hits the cap). */
+  worktreeId: string | null
   fingerprint: string
   snapshot: AgentLaunchSnapshot
   admittedAt: number
@@ -78,19 +89,27 @@ export function principalKey(principal: AdmissionPrincipal): string {
 export class AgentLaunchAdmissionStore {
   private readonly byToken = new Map<string, AdmittedLaunchRecord>()
   private readonly countsByPrincipal = new Map<string, number>()
+  private readonly countsByWorktree = new Map<string, number>()
   private readonly reservations = new Map<string, AdmissionPrincipal>()
   private remoteTotal = 0
 
   /** launch_capacity_exceeded when any cap is at its bound, else null. Held
-   *  reservations count toward every cap alongside committed records. */
-  private capacityFailure(principal: AdmissionPrincipal): AgentLaunchFailure | null {
+   *  reservations count toward the principal/host/remote caps; the per-worktree
+   *  cap counts only committed records (a two-stage reservation has no worktree
+   *  yet). */
+  private capacityFailure(
+    principal: AdmissionPrincipal,
+    worktreeId: string | null
+  ): AgentLaunchFailure | null {
     const principalCount = this.countsByPrincipal.get(principalKey(principal)) ?? 0
+    const worktreeCount = worktreeId ? (this.countsByWorktree.get(worktreeId) ?? 0) : 0
     if (
       this.byToken.size + this.reservations.size >= MAX_PENDING_LAUNCHES_PER_HOST ||
       principalCount >= MAX_PENDING_LAUNCHES_PER_PRINCIPAL ||
       // Remote principals collectively stop short of the host cap so local
       // desktop/host work always retains reserved capacity.
-      (principal.kind === 'remote' && this.remoteTotal >= MAX_PENDING_LAUNCHES_REMOTE_TOTAL)
+      (principal.kind === 'remote' && this.remoteTotal >= MAX_PENDING_LAUNCHES_REMOTE_TOTAL) ||
+      (worktreeId !== null && worktreeCount >= MAX_PENDING_LAUNCHES_PER_WORKTREE)
     ) {
       return { code: 'launch_capacity_exceeded', reason: 'capacity' }
     }
@@ -118,10 +137,31 @@ export class AgentLaunchAdmissionStore {
     }
   }
 
+  /** Per-worktree counters track committed records only. Called when a record
+   *  is committed (admit / admitReserved) and released. */
+  private incrementWorktree(worktreeId: string | null): void {
+    if (!worktreeId) {
+      return
+    }
+    this.countsByWorktree.set(worktreeId, (this.countsByWorktree.get(worktreeId) ?? 0) + 1)
+  }
+
+  private decrementWorktree(worktreeId: string | null): void {
+    if (!worktreeId) {
+      return
+    }
+    const count = this.countsByWorktree.get(worktreeId) ?? 0
+    if (count <= 1) {
+      this.countsByWorktree.delete(worktreeId)
+    } else {
+      this.countsByWorktree.set(worktreeId, count - 1)
+    }
+  }
+
   /** Commit an admitted-pending record. Call ONLY from inside the coordinator's
    *  critical section, after the fingerprint recheck passed. */
   admit(input: AgentLaunchAdmitInput & { principal: AdmissionPrincipal }): AdmissionResult {
-    const failure = this.capacityFailure(input.principal)
+    const failure = this.capacityFailure(input.principal, input.worktreeId)
     if (failure) {
       return { ok: false, failure }
     }
@@ -130,19 +170,23 @@ export class AgentLaunchAdmissionStore {
       principal: input.principal,
       intent: input.intent,
       scope: input.scope,
+      worktreeId: input.worktreeId,
       fingerprint: input.fingerprint,
       snapshot: input.snapshot,
       admittedAt: input.admittedAt
     }
     this.byToken.set(record.launchToken, record)
     this.incrementCounters(input.principal)
+    this.incrementWorktree(record.worktreeId)
     return { ok: true, record }
   }
 
   /** Take a capacity hold before git/worktree mutation. The pre-create stage
    *  reserves so a full worktree is never created for an over-cap launch. */
   reserve(principal: AdmissionPrincipal): ReservationResult {
-    const failure = this.capacityFailure(principal)
+    // A pre-create reservation names no worktree yet (it is creating one), so it
+    // never counts against the per-worktree cap.
+    const failure = this.capacityFailure(principal, null)
     if (failure) {
       return { ok: false, failure }
     }
@@ -166,11 +210,16 @@ export class AgentLaunchAdmissionStore {
       principal,
       intent: input.intent,
       scope: input.scope,
+      worktreeId: input.worktreeId,
       fingerprint: input.fingerprint,
       snapshot: input.snapshot,
       admittedAt: input.admittedAt
     }
     this.byToken.set(record.launchToken, record)
+    // The reservation already counted toward principal/host/remote; the worktree
+    // is known only now (post-create), and a brand-new worktree starts at 0, so
+    // this commit never trips the per-worktree cap.
+    this.incrementWorktree(record.worktreeId)
     return { ok: true, record }
   }
 
@@ -200,6 +249,7 @@ export class AgentLaunchAdmissionStore {
     }
     this.byToken.delete(launchToken)
     this.decrementCounters(record.principal)
+    this.decrementWorktree(record.worktreeId)
     return true
   }
 
@@ -210,11 +260,13 @@ export class AgentLaunchAdmissionStore {
   rebuildFrom(records: Iterable<AdmittedLaunchRecord>): void {
     this.byToken.clear()
     this.countsByPrincipal.clear()
+    this.countsByWorktree.clear()
     this.reservations.clear()
     this.remoteTotal = 0
     for (const record of records) {
       this.byToken.set(record.launchToken, record)
       this.incrementCounters(record.principal)
+      this.incrementWorktree(record.worktreeId)
     }
   }
 
@@ -224,6 +276,10 @@ export class AgentLaunchAdmissionStore {
 
   pendingForPrincipal(principal: AdmissionPrincipal): number {
     return this.countsByPrincipal.get(principalKey(principal)) ?? 0
+  }
+
+  pendingForWorktree(worktreeId: string): number {
+    return this.countsByWorktree.get(worktreeId) ?? 0
   }
 
   /** Secret-free rows for the capacity-recovery surface: never snapshot, argv,

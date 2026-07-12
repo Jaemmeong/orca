@@ -20,10 +20,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import type {
   Automation,
   AutomationCreateInput,
-  AutomationDispatchResult,
   AutomationPrecheckResult,
   AutomationRunOutputSnapshot,
   AutomationRun,
+  AutomationRunPersistInput,
   AutomationSchedulerOwner,
   AutomationRunTrigger,
   AutomationUpdateInput
@@ -4783,7 +4783,7 @@ export class Store {
     return run
   }
 
-  updateAutomationRun(result: AutomationDispatchResult): AutomationRun {
+  updateAutomationRun(result: AutomationRunPersistInput): AutomationRun {
     const index = (this.state.automationRuns ?? []).findIndex((entry) => entry.id === result.runId)
     if (index === -1) {
       throw new Error('Automation run not found.')
@@ -4819,6 +4819,14 @@ export class Store {
         : normalizeAutomationPrecheckResult(current.precheckResult),
       usage: Object.hasOwn(result, 'usage') ? (result.usage ?? null) : (current.usage ?? null),
       error: result.error ?? null,
+      // U6 additive: preserve when the update omits them so a generic dispatch
+      // update never drops a launch failure the recovery card is rendering.
+      agentLaunchFailure: Object.hasOwn(result, 'agentLaunchFailure')
+        ? (result.agentLaunchFailure ?? null)
+        : (current.agentLaunchFailure ?? null),
+      agentLaunchForgottenAt: Object.hasOwn(result, 'agentLaunchForgottenAt')
+        ? (result.agentLaunchForgottenAt ?? null)
+        : (current.agentLaunchForgottenAt ?? null),
       startedAt: current.startedAt ?? now,
       dispatchedAt: result.status === 'dispatched' ? now : current.dispatchedAt
     }

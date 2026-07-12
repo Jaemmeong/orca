@@ -24,7 +24,9 @@ import {
 } from './agent-launch-operation-store'
 
 export type ForgetUnknownAgentLaunchParams = {
-  worktreeId: string
+  /** Owner bucket for the op-store ledger/pending lookup: worktree id for an
+   *  interactive launch, attempt id for a generic background attempt. */
+  scope: string
   expectedOperationId: string
   clientMutationId: string
 }

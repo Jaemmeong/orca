@@ -82,6 +82,11 @@ export type HostStateResolution = {
 export type ExecuteAgentLaunchArgs = {
   /** Owner scope for reconciliation joins (worktree id, pane key, run id …). */
   scope: string
+  /** Target worktree for the per-worktree admission cap. Omit/null when the
+   *  launch names no worktree (the scope already IS the worktree for interactive
+   *  worktree launches, but unattended launches scope by run/dispatch/attempt id
+   *  and must name the worktree separately). */
+  worktreeId?: string | null
   principal: AdmissionPrincipal
   /** Re-resolve from a fresh atomic host view. Called once before admission and
    *  once inside the coordinator; both re-read settings. */

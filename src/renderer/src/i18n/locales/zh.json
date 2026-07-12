@@ -13011,6 +13011,14 @@
       "stateUnknown": "启动状态未知。请在重试前检查终端。",
       "capacityExceeded": "此主机上待处理的智能体启动过多。请重新连接或忘记搁置的启动，然后重试。"
     },
+    "unattendedFailure": {
+      "title": {
+        "automation": "自动化的智能体未能启动。",
+        "orchestration": "任务的智能体未能启动。",
+        "background": "后台智能体未能启动。",
+        "generic": "智能体启动未能完成。"
+      }
+    },
     "requestError": {
       "idempotencyConflict": "此次启动已在进行中。",
       "staleFailure": "此次启动已处理。请刷新后重试。",
@@ -13024,7 +13032,8 @@
       "empty": "启动容量当前空闲。此主机上没有待处理的启动。",
       "action": {
         "open": "打开",
-        "goToWorkspace": "前往工作区"
+        "goToWorkspace": "前往工作区",
+        "goToRun": "前往运行"
       },
       "source": {
         "interactive": "工作区",

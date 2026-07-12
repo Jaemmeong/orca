@@ -4,7 +4,7 @@ import type {
   LaunchAgentBackgroundSessionResult
 } from '@/lib/agent-background-session-contract'
 import { resolveTelemetryAgentKind } from '@/lib/telemetry-agent-kind'
-import { agentLaunchOutcomeErrorMessage } from '@/lib/agent-launch-failure-copy'
+import { AgentLaunchSpawnOutcomeError } from '@/lib/agent-launch-spawn-outcome-error'
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
 import { showAutomationPromptNotSentToast } from '@/lib/agent-background-session-timeout-toast'
@@ -181,10 +181,11 @@ export async function launchAgentBackgroundSession(
         },
         { timeoutMs: 15_000 }
       )
-      // Why: a pre-spawn host failure/rejection created no terminal — surface the
-      // localized reason and let the catch retire the hidden tab.
+      // Why: a pre-spawn host failure/rejection created no terminal — throw the
+      // typed outcome (structured failure for the owner record + the localized
+      // message) and let the catch retire the hidden tab.
       if (!('terminal' in created)) {
-        throw new Error(agentLaunchOutcomeErrorMessage(created.agentLaunch))
+        throw new AgentLaunchSpawnOutcomeError(created.agentLaunch)
       }
       const terminal = created.terminal
       // Why: the runtime terminal-create result is receipt-only (never echoes the
@@ -210,10 +211,11 @@ export async function launchAgentBackgroundSession(
           request_kind: 'new'
         }
       })
-      // Why: a pre-spawn host failure/rejection has no `id` — surface the
-      // localized reason and let the catch retire the hidden tab.
+      // Why: a pre-spawn host failure/rejection has no `id` — throw the typed
+      // outcome (structured failure for the owner record + the localized
+      // message) and let the catch retire the hidden tab.
       if (!('id' in result)) {
-        throw new Error(agentLaunchOutcomeErrorMessage(result.agentLaunch))
+        throw new AgentLaunchSpawnOutcomeError(result.agentLaunch)
       }
       ptyId = result.id
       launchToken =

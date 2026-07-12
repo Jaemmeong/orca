@@ -39,6 +39,7 @@ import type {
   PersistedLaunchNoticeState
 } from './agent-launch-contract'
 import type { AgentLaunchSpawnRequest } from './agent-launch-spawn-request'
+import type { BackgroundAgentLaunchAttempt } from './background-agent-launch'
 import type { AgentKind, LaunchSource, RequestKind } from './telemetry-events'
 import type { SleepingAgentLaunchConfig, SleepingAgentSessionRecord } from './agent-session-resume'
 import type { ClaudeAgentTeamsMode } from './claude-agent-teams-tmux-compat'
@@ -529,6 +530,12 @@ export type Worktree = {
   /** Client-safe mirror of {@link WorktreeMeta.agentLaunchFailure}: the durable
    *  post-create failure the recovery card renders. Only codes + repair hints. */
   agentLaunchFailure?: PersistedAgentLaunchFailure
+  /** Client-safe projection of the SEPARATE generic background-attempt store
+   *  (U6), filtered to attempts targeting this worktree. Distinct from the
+   *  interactive two-stage `pendingAgentLaunch`/`agentLaunchFailure` above so an
+   *  unattended background failure survives reload and renders its own recovery
+   *  card without conflating the two. Omitted when there are none. */
+  backgroundAgentLaunches?: BackgroundAgentLaunchAttempt[]
 } & GitWorktreeInfo
 
 export type AutomationWorkspaceProvenance = {

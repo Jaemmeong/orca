@@ -9,11 +9,14 @@ import type {
 } from '../../../shared/agent-launch-pending-summary'
 import type { AgentLaunchIntentKind } from '../../../shared/agent-launch-contract'
 
-/** The single action a client may take on a pending-launch row. Only a worktree
- *  owner is routable today; session/run/task owners deep-link once their
- *  producers land (U5/U6/U9), and an ownerless direct/session row (which would
- *  offer explicit Forget) is not admitted yet, so both resolve to `null`. */
-export type CapacityRecoveryRowAction = { kind: 'open-worktree'; worktreeId: string }
+/** The single action a client may take on a pending-launch row. A run owner
+ *  deep-links to its owning automation run; every other routable owner
+ *  (worktree, plus task/session once their worktree scope resolves) reveals its
+ *  owning worktree — the sheet lands on that surface's recovery card. An owner
+ *  whose worktree scope hasn't resolved yet resolves to `null` (copy-only row). */
+export type CapacityRecoveryRowAction =
+  | { kind: 'open-worktree'; worktreeId: string }
+  | { kind: 'open-automation-run'; automationId: string; runId: string }
 
 export type CapacityRecoveryRowView = {
   sourceKind: AgentLaunchIntentKind
@@ -25,14 +28,41 @@ export type CapacityRecoveryRowView = {
 
 /** Resolve the routable action for a row. A worktree deep link opens the owning
  *  workspace (live rows reveal the terminal; absent/unknown rows land on its
- *  recovery card). Every other owner kind is not routable yet. */
+ *  recovery card). A run opens its owning automation run. Task and session
+ *  owners route to their owning worktree by the same principle — a dedicated
+ *  task surface is deferred to U9 — but only once the host has resolved the
+ *  worktree scope; until then the row is copy-only (`null`). */
 export function resolveCapacityRowAction(
   row: PendingAgentLaunchSummaryRow
 ): CapacityRecoveryRowAction | null {
-  if (row.deepLink?.kind === 'worktree') {
-    return { kind: 'open-worktree', worktreeId: row.deepLink.worktreeId }
+  const link = row.deepLink
+  if (!link) {
+    return null
   }
-  return null
+  switch (link.kind) {
+    case 'worktree':
+      return { kind: 'open-worktree', worktreeId: link.worktreeId }
+    case 'run':
+      return { kind: 'open-automation-run', automationId: link.automationId, runId: link.runId }
+    case 'task':
+    case 'session':
+      return link.worktreeId ? { kind: 'open-worktree', worktreeId: link.worktreeId } : null
+  }
+}
+
+/** i18n key + English fallback for a row's action button, keyed off the routed
+ *  destination (an automation run reads "Go to run"; a worktree reads "Open"
+ *  when its terminal is live, else "Go to workspace"). */
+export function capacityActionCopy(
+  action: CapacityRecoveryRowAction,
+  liveness: PendingAgentLaunchLiveness
+): { key: string; fallback: string } {
+  if (action.kind === 'open-automation-run') {
+    return { key: 'agentLaunch.capacity.action.goToRun', fallback: 'Go to run' }
+  }
+  return liveness === 'live'
+    ? { key: 'agentLaunch.capacity.action.open', fallback: 'Open' }
+    : { key: 'agentLaunch.capacity.action.goToWorkspace', fallback: 'Go to workspace' }
 }
 
 export function toCapacityRecoveryRowView(

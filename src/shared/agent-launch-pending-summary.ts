@@ -14,12 +14,17 @@ import type { BuiltInTuiAgent } from './types'
 export type PendingAgentLaunchLiveness = 'live' | 'absent' | 'unknown'
 
 /** Owner reference the client routes to the owning recovery surface. Carries only
- *  the owner kind + owner id — never a path, prompt, agent id/label, or token. */
+ *  client-safe routable ids — never a path, prompt, agent id/label, or token. The
+ *  host resolves each arm's routing key at summary time from its own records: run
+ *  → owning automationId; task/session → owning worktree (no dedicated task/session
+ *  reveal surface exists, so both route to the worktree that contains them). The
+ *  worktreeId on task/session is optional because a producer may emit the owner id
+ *  before its worktree scope is resolvable. */
 export type PendingAgentLaunchDeepLink =
   | { kind: 'worktree'; worktreeId: string }
-  | { kind: 'session'; sessionId: string }
-  | { kind: 'run'; runId: string }
-  | { kind: 'task'; taskId: string }
+  | { kind: 'session'; sessionId: string; worktreeId?: string }
+  | { kind: 'run'; runId: string; automationId: string }
+  | { kind: 'task'; taskId: string; worktreeId?: string }
 
 export type PendingAgentLaunchSummaryRow = {
   sourceKind: AgentLaunchIntentKind

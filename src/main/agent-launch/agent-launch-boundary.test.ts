@@ -329,6 +329,7 @@ describe('AgentLaunchBoundary.executeAgentLaunch', () => {
         principal: LOCAL_PRINCIPAL,
         intent: 'interactive',
         scope: `filler-${index}`,
+        worktreeId: null,
         fingerprint: 'x',
         snapshot: makeSnapshot(),
         admittedAt: 1
