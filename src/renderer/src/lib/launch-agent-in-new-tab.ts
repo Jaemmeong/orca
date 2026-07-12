@@ -1,12 +1,5 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import {
-  buildAgentDraftLaunchPlan,
-  buildAgentStartupPlan,
-  type AgentStartupPlan
-} from '@/lib/tui-agent-startup'
-import { CLIENT_PLATFORM } from '@/lib/new-workspace'
-import { getAgentLaunchPlatformForRepo } from '@/lib/agent-launch-platform'
 import { reconcileTabOrder } from '@/components/tab-bar/reconcile-order'
 import { track } from '@/lib/telemetry'
 import { resolveTelemetryAgentKind } from '@/lib/telemetry-agent-kind'
@@ -14,14 +7,8 @@ import { deliverLaunchPromptToAgentTab } from '@/lib/agent-launch-prompt-deliver
 import { initialAgentTabViewModeProps } from '@/lib/native-chat-initial-view-mode'
 import { isNativeChatTranscriptLocalReadable } from '@/lib/native-chat-transcript-readability'
 import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
-import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { isWebRuntimeSessionActive } from '@/runtime/web-runtime-session'
 import { launchAgentInWebHostTab } from '@/lib/launch-agent-web-host-tab'
-import {
-  resolveTuiAgentLaunchArgs,
-  resolveTuiAgentLaunchEnv
-} from '../../../shared/tui-agent-launch-defaults'
-import { resolveLocalWindowsAgentStartupShell } from '../../../shared/windows-terminal-shell'
 import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
 import { resolveTuiAgentBaseAgent } from '../../../shared/custom-tui-agents'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
@@ -44,12 +31,9 @@ export type LaunchAgentInNewTabArgs = {
   /** Optional initial prompt. Delivery depends on `promptDelivery` and the
    *  agent's prompt mode. */
   prompt?: string
-  /** Optional CLI arguments appended to the selected agent command. */
-  agentArgs?: string | null
   /** Host-verified saved owner (e.g. a source-control recipe) whose stored
    *  agentArgs/env the host resolves and applies to this launch. Clients send
-   *  only the locator; the host owns arg assembly, so callers must NOT also pass
-   *  `agentArgs` for the same recipe (it has no wire effect on this path). */
+   *  only the locator; the host owns all command/arg assembly. */
   sourceRecord?: AgentLaunchSourceRecord
   /** Force generated prompt text out of the shell launch command. `draft`
    *  leaves it editable; `submit-after-ready` sends it once the TUI is ready. */
@@ -59,8 +43,10 @@ export type LaunchAgentInNewTabArgs = {
   launchSource?: LaunchSource
   /** User-authored Quick Command label for local tabs created from the tab bar. */
   quickCommandLabel?: string | null
-  /** Shell platform that will execute the startup command. Defaults to the
-   * renderer OS; SSH and WSL worktrees run a Linux shell even from Windows. */
+  /** Vestigial: the host now owns platform-dependent command assembly, so this
+   *  no longer affects the client launch. Still accepted so the source-control
+   *  callers that thread it need not change; retiring that threading is a
+   *  follow-up cleanup. */
   launchPlatform?: NodeJS.Platform
   /** Called after the prompt is actually delivered to the agent input path. */
   onPromptDelivered?: () => void
@@ -68,10 +54,9 @@ export type LaunchAgentInNewTabArgs = {
 
 export type LaunchAgentInNewTabResult = {
   tabId: string | null
-  startupPlan: AgentStartupPlan
   pasteDraftAfterLaunch: boolean
   promptDeliveryResult?: Promise<{ delivered: boolean; failureNotified: boolean }>
-} | null
+}
 
 /**
  * Create a new terminal tab and queue the agent's launch command, optionally
@@ -91,9 +76,10 @@ export type LaunchAgentInNewTabResult = {
  * agents launch empty and receive a post-ready draft paste. Generated contexts
  * can override this with draft or submit-after-ready delivery.
  *
- * Returns `null` when no startup plan can be built — for example, a whitespace-
- * only prompt on the trim-empty branch of `buildAgentStartupPlan`. Callers
- * surface that as a launch failure (see `QuickLaunchButton.runLaunch`).
+ * The host owns command/arg/token assembly on the `agentLaunch` path, so this
+ * never validates or aborts on the client: an unlaunchable request (e.g.
+ * untokenizable stored args) still creates the tab and surfaces the host's
+ * typed failure downstream rather than silently no-op'ing.
  */
 export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentInNewTabResult {
   const {
@@ -101,48 +87,21 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     worktreeId,
     groupId,
     prompt,
-    agentArgs,
     sourceRecord,
     promptDelivery = 'auto-submit',
     launchSource,
     quickCommandLabel,
-    launchPlatform,
     onPromptDelivered
   } = args
   const store = useAppStore.getState()
   const worktree = store.allWorktrees?.().find((entry: { id: string }) => entry.id === worktreeId)
   const repo = worktree ? store.repos?.find((entry) => entry.id === worktree.repoId) : null
-  const resolvedLaunchPlatform =
-    launchPlatform ??
-    (repo
-      ? getAgentLaunchPlatformForRepo(
-          repo,
-          repo.connectionId ? undefined : getLocalProjectExecutionRuntimeContext(store, worktreeId)
-        )
-      : CLIENT_PLATFORM)
-  // Why: SSH remotes deploy the CLI shim as plain `orca`, so the Linux-only
-  // `orca-ide` rename must not be applied for remote launches.
+  // Why: on a remote (SSH/relay) target the host delivers a post-ready draft
+  // through its local ptyController, which never reaches the relay-hosted pty
+  // (the W6-remote U10 gap). A folded draft the host defers to post-ready would
+  // be silently lost there, so the draft branch below routes to a client-side
+  // paste on remote instead.
   const isRemote = repo ? repoIsRemote(repo) : false
-  const queuedShell = resolveLocalWindowsAgentStartupShell({
-    platform: resolvedLaunchPlatform,
-    isRemote,
-    terminalWindowsShell: store.settings?.terminalWindowsShell
-  })
-  const cmdOverrides = store.settings?.agentCmdOverrides ?? {}
-  const effectiveAgentArgs =
-    agentArgs !== undefined
-      ? agentArgs
-      : resolveTuiAgentLaunchArgs(agent, store.settings?.agentDefaultArgs)
-  const agentEnv = resolveTuiAgentLaunchEnv(agent, store.settings?.agentDefaultEnv)
-  const startupPlanBase = {
-    agent,
-    cmdOverrides,
-    platform: resolvedLaunchPlatform,
-    shell: queuedShell,
-    isRemote,
-    agentArgs: effectiveAgentArgs,
-    agentEnv
-  }
   const trimmedPrompt = prompt?.trim() ?? ''
   const hasPrompt = trimmedPrompt.length > 0
   // Why: key the fold-vs-paste decision on the resolved BASE agent. Under
@@ -164,7 +123,8 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
   // Followup-path and generated-context launches can deliver a prompt via
   // post-launch bracketed paste; callers decide whether that paste remains a
   // draft or submits after readiness.
-  let startupPlan: AgentStartupPlan | null = null
+  // The host assembles and validates the launch; the client only decides
+  // whether the prompt folds into that launch or is pasted after readiness.
   let pasteDraftAfterLaunch: string | null = null
   let submitPastedPrompt = false
   let forcePasteAfterLaunch = false
@@ -173,56 +133,25 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
   if (hasPrompt && promptDelivery === 'submit-after-ready') {
     // Why: generated multi-line prompts are too large to echo through a shell
     // argv/prefill command. Launch cleanly, then paste+submit inside the TUI.
-    startupPlan = buildAgentStartupPlan({
-      ...startupPlanBase,
-      prompt: '',
-      allowEmptyPromptLaunch: true
-    })
     pasteDraftAfterLaunch = trimmedPrompt
     submitPastedPrompt = true
     forcePasteAfterLaunch = true
   } else if (hasPrompt && promptDelivery === 'draft') {
-    const draftLaunchPlan = buildAgentDraftLaunchPlan({
-      ...startupPlanBase,
-      draft: trimmedPrompt
-    })
-    if (draftLaunchPlan) {
-      startupPlan = {
-        agent: draftLaunchPlan.agent,
-        launchCommand: draftLaunchPlan.launchCommand,
-        expectedProcess: draftLaunchPlan.expectedProcess,
-        followupPrompt: null,
-        launchConfig: draftLaunchPlan.launchConfig,
-        ...(draftLaunchPlan.startupCommandDelivery
-          ? { startupCommandDelivery: draftLaunchPlan.startupCommandDelivery }
-          : {}),
-        ...(draftLaunchPlan.env ? { env: draftLaunchPlan.env } : {})
-      }
-    } else {
-      startupPlan = buildAgentStartupPlan({
-        ...startupPlanBase,
-        prompt: '',
-        allowEmptyPromptLaunch: true
-      })
+    // Local: fold the draft into the host launch (pasteDraftAfterLaunch stays
+    // null). The host owns whether it lands via an inline flag, an env var, or a
+    // post-ready draftPrompt paste (draftParts/maxInlineDraftChars) — no client
+    // command estimate. Remote: the host's post-ready draftPrompt paste writes
+    // through its local ptyController and never reaches the relay-hosted pty
+    // (W6-remote U10 gap), so a folded draft the host defers to post-ready would
+    // be silently lost. Deliver via a client paste instead — the same text
+    // arrives; forcePaste overrides the native-prefill no-op so a
+    // draftPromptFlag/env base still receives it (nothing was folded to prefill).
+    if (isRemote) {
       pasteDraftAfterLaunch = trimmedPrompt
+      forcePasteAfterLaunch = true
     }
   } else if (hasPrompt && isFollowupPath) {
-    startupPlan = buildAgentStartupPlan({
-      ...startupPlanBase,
-      prompt: '',
-      allowEmptyPromptLaunch: true
-    })
     pasteDraftAfterLaunch = trimmedPrompt
-  } else {
-    startupPlan = buildAgentStartupPlan({
-      ...startupPlanBase,
-      prompt: hasPrompt ? trimmedPrompt : '',
-      allowEmptyPromptLaunch: !hasPrompt
-    })
-  }
-
-  if (!startupPlan) {
-    return null
   }
 
   // Why: the prompt rides `agentLaunch` only when it folds into the launch
@@ -261,7 +190,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
       agentLaunch,
       onPromptDelivered
     })
-    return { tabId: null, startupPlan, pasteDraftAfterLaunch: false }
+    return { tabId: null, pasteDraftAfterLaunch: false }
   }
 
   // Why: queue the startup command BEFORE TerminalPane mounts — it captures
@@ -394,7 +323,6 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
 
   return {
     tabId: tab.id,
-    startupPlan,
     pasteDraftAfterLaunch: pasteDraftAfterLaunch !== null,
     ...(promptDeliveryResult ? { promptDeliveryResult } : {})
   }

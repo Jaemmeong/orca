@@ -449,7 +449,7 @@ describe('launchAgentInNewTab', () => {
     expect(mockPasteDraftWhenAgentReady).not.toHaveBeenCalled()
   })
 
-  it('falls back to post-ready draft paste when an inline draft would be too large', async () => {
+  it('folds an oversized local draft into agentLaunch for the host to place', async () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
     const prompt = 'x'.repeat(25_000)
 
@@ -457,25 +457,56 @@ describe('launchAgentInNewTab', () => {
       agent: 'claude',
       worktreeId: 'wt-1',
       prompt,
-      promptDelivery: 'draft',
-      launchPlatform: 'win32'
+      promptDelivery: 'draft'
     })
 
     expect(result).not.toHaveProperty('promptDeliveryResult')
     const queued = mockQueueTabStartupCommand.mock.calls[0][1]
-    // Too large to fold: launch bare through agentLaunch and paste post-ready.
+    // Local (Path Y): the client no longer estimates inline fit — the whole
+    // draft folds into agentLaunch and the host decides inline flag vs env vs
+    // post-ready paste. No client-side paste happens.
+    expect(queued.agentLaunch).toEqual({
+      selection: { kind: 'agent', agent: 'claude' },
+      prompt,
+      promptDelivery: 'draft'
+    })
+    expect(queued.command).toBeFalsy()
+    expect(mockPasteDraftWhenAgentReady).not.toHaveBeenCalled()
+  })
+
+  it('delivers a remote draft via client paste since the host cannot reach the relay pty', async () => {
+    // Remote guard (ledger #18): the host's post-ready draftPrompt paste writes
+    // through its local ptyController and never reaches the relay-hosted pty
+    // (W6-remote U10 gap). Folding-and-trusting would silently lose a draft the
+    // host defers to post-ready, so the client pastes it instead — non-lossy.
+    store.repos = [{ id: 'repo-1', connectionId: 'ssh-target-1', path: '/repo' }]
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+    const prompt = "review Bob's change"
+
+    const result = launchAgentInNewTab({
+      agent: 'claude',
+      worktreeId: 'wt-1',
+      prompt,
+      promptDelivery: 'draft'
+    })
+
+    expect(result).not.toHaveProperty('promptDeliveryResult')
+    const queued = mockQueueTabStartupCommand.mock.calls[0][1]
+    // Launch bare — the draft rides the client paste, not agentLaunch.
     expect(queued.agentLaunch).toEqual({
       selection: { kind: 'agent', agent: 'claude' },
       allowEmptyPromptLaunch: true
     })
     expect(queued.command).toBeFalsy()
+    // forcePaste overrides the native-prefill no-op so claude's draft-flag base
+    // still receives the paste (nothing was folded to prefill it).
     expect(mockPasteDraftWhenAgentReady).toHaveBeenCalledWith(
       expect.objectContaining({
         tabId: 'tab-1',
         content: prompt,
         agent: 'claude',
         submit: false,
-        forcePaste: false
+        forcePaste: true
       })
     )
   })
@@ -486,16 +517,17 @@ describe('launchAgentInNewTab', () => {
     const consoleError = vi.fn()
     vi.stubGlobal('console', { ...originalConsole, error: consoleError })
     mockPasteDraftWhenAgentReady.mockRejectedValue(error)
+    // A remote draft takes the client paste path, so a rejected paste hits the
+    // fire-and-forget catch that logs without surfacing to callers.
+    store.repos = [{ id: 'repo-1', connectionId: 'ssh-target-1', path: '/repo' }]
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
-    const prompt = 'x'.repeat(25_000)
 
     try {
       const result = launchAgentInNewTab({
         agent: 'claude',
         worktreeId: 'wt-1',
-        prompt,
-        promptDelivery: 'draft',
-        launchPlatform: 'win32'
+        prompt: "review Bob's change",
+        promptDelivery: 'draft'
       })
 
       expect(result).not.toHaveProperty('promptDeliveryResult')
@@ -662,14 +694,13 @@ describe('launchAgentInNewTab', () => {
     expect(mockToastMessage).not.toHaveBeenCalled()
   })
 
-  it('queues per-launch CLI arguments without putting generated prompts in argv', async () => {
+  it('launches a submit-after-ready prompt bare, never in argv or the request', async () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     launchAgentInNewTab({
       agent: 'codex',
       worktreeId: 'wt-1',
       prompt: 'large generated prompt',
-      agentArgs: '--model gpt-5.5',
       promptDelivery: 'submit-after-ready'
     })
 
@@ -684,15 +715,39 @@ describe('launchAgentInNewTab', () => {
     expect(queued.command).toBeFalsy()
   })
 
+  it('proceeds with untokenizable stored args instead of aborting to a silent no-op', async () => {
+    // Option A (ledger #16): the client no longer builds or validates the launch
+    // command, so untokenizable stored args (unterminated quote) no longer abort
+    // to a silent null. The tab is created and the host surfaces the typed
+    // invalid-args failure downstream.
+    store.settings = {
+      agentCmdOverrides: {},
+      agentDefaultArgs: { codex: '--model "unterminated' },
+      agentDefaultEnv: {},
+      activeRuntimeEnvironmentId: null
+    }
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    const result = launchAgentInNewTab({ agent: 'codex', worktreeId: 'wt-1' })
+
+    expect(result).not.toBeNull()
+    expect(mockCreateTab).toHaveBeenCalled()
+    const queued = mockQueueTabStartupCommand.mock.calls[0][1]
+    expect(queued.agentLaunch).toEqual({
+      selection: { kind: 'agent', agent: 'codex' },
+      allowEmptyPromptLaunch: true
+    })
+    expect(queued.command).toBeFalsy()
+  })
+
   it('threads a source-control recipe owner locator into agentLaunch, never client args', async () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 
     launchAgentInNewTab({
       agent: 'codex',
       worktreeId: 'wt-1',
-      // agentArgs must NOT reach the host: the recipe owner locator does, so the
-      // host resolves and validates the recipe's stored args itself.
-      agentArgs: '--model gpt-5.5',
+      // Only the recipe owner locator reaches the host; it resolves and validates
+      // the recipe's stored args itself. The client never assembles or sends args.
       sourceRecord: { owner: 'source-control-recipe', id: 'fixChecks' }
     })
 
@@ -737,45 +792,29 @@ describe('launchAgentInNewTab', () => {
         { id: customId, baseAgent: 'aider', label: 'My Aider', args: '', env: {}, syncEnv: false }
       ]
     } as never
-    // The startup-plan builders throw on custom ids (requireBuiltInTuiAgentConfig);
-    // stub them so this test observes the base-keyed fold-vs-paste decision alone.
-    vi.resetModules()
-    vi.doMock('@/lib/tui-agent-startup', () => ({
-      buildAgentStartupPlan: vi.fn(() => ({
+    // The client no longer assembles a startup plan (host owns it), so no builder
+    // stub is needed — this observes the base-keyed fold-vs-paste decision alone.
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    launchAgentInNewTab({
+      agent: customId as never,
+      worktreeId: 'wt-1',
+      prompt: 'fix the flaky test'
+    })
+
+    const queued = mockQueueTabStartupCommand.mock.calls[0][1]
+    expect(queued.agentLaunch).toEqual({
+      selection: { kind: 'agent', agent: customId },
+      allowEmptyPromptLaunch: true
+    })
+    expect(queued.agentLaunch.prompt).toBeUndefined()
+    expect(mockPasteDraftWhenAgentReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tabId: 'tab-1',
+        content: 'fix the flaky test',
         agent: customId,
-        launchCommand: 'aider',
-        expectedProcess: 'aider',
-        followupPrompt: null,
-        launchConfig: { agentCommand: 'aider', agentArgs: '', agentEnv: {} }
-      })),
-      buildAgentDraftLaunchPlan: vi.fn(() => null)
-    }))
-    try {
-      const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
-
-      launchAgentInNewTab({
-        agent: customId as never,
-        worktreeId: 'wt-1',
-        prompt: 'fix the flaky test'
+        submit: false
       })
-
-      const queued = mockQueueTabStartupCommand.mock.calls[0][1]
-      expect(queued.agentLaunch).toEqual({
-        selection: { kind: 'agent', agent: customId },
-        allowEmptyPromptLaunch: true
-      })
-      expect(queued.agentLaunch.prompt).toBeUndefined()
-      expect(mockPasteDraftWhenAgentReady).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tabId: 'tab-1',
-          content: 'fix the flaky test',
-          agent: customId,
-          submit: false
-        })
-      )
-    } finally {
-      vi.doUnmock('@/lib/tui-agent-startup')
-      vi.resetModules()
-    }
+    )
   })
 })

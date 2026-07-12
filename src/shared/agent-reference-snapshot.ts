@@ -101,3 +101,23 @@ export type AgentReferenceSummary = {
   owner: AgentReferenceOwnerKind
   count: number
 }
+
+/** A base-disable impact count (§973). `count` is the number of readable
+ *  matches; `atLeast` is true when a contributing owner store could not be read,
+ *  so the true total may be higher — the "at least N" analog of the summary's
+ *  per-owner -1. Counts only: never a label or config. */
+export type BaseDisableImpactCount = {
+  count: number
+  atLeast: boolean
+}
+
+/** Host-computed impact of disabling a built-in base (§973), for the confirm
+ *  dialog. `savedReferences` counts persisted-owner references whose launch
+ *  blocks — the base id itself plus any custom derivative of it (baseAgent === X)
+ *  — excluding sessions, which are reported separately. `resumableSessions`
+ *  counts resumable records on that base (covering direct and derivative launches
+ *  alike). Enabled-derivative counts stay client-side off the catalog snapshot. */
+export type BaseDisableImpact = {
+  savedReferences: BaseDisableImpactCount
+  resumableSessions: BaseDisableImpactCount
+}

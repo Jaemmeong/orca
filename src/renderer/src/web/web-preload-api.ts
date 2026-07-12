@@ -608,7 +608,8 @@ function createWebPreloadApi(): Partial<PreloadApi> {
         getLocal: () => Promise.reject(new Error('not_available_on_paired_web')),
         mutate: () => Promise.reject(new Error('not_available_on_paired_web')),
         getLocalDraft: () => Promise.reject(new Error('not_available_on_paired_web')),
-        referenceSummary: () => Promise.reject(new Error('not_available_on_paired_web'))
+        referenceSummary: () => Promise.reject(new Error('not_available_on_paired_web')),
+        baseDisableImpact: () => Promise.reject(new Error('not_available_on_paired_web'))
       },
       agentReferences: {
         getLocal: () => Promise.reject(new Error('not_available_on_paired_web')),

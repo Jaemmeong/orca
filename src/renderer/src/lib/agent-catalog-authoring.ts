@@ -16,6 +16,7 @@ import type {
 import type {
   BuiltInTuiAgent,
   CommitMessageAiSettings,
+  CustomTuiAgentId,
   GlobalSettings,
   TerminalQuickCommand,
   TuiAgent
@@ -109,6 +110,37 @@ export function setTuiAgentEnabled(
   enabled: boolean
 ): Promise<AgentCatalogMutationResult> {
   return mutateAgentCatalog({ kind: 'set-enabled', agent, enabled })
+}
+
+// The reference-aware disable confirmation must recheck the revision the user
+// saw and, on conflict, refresh its summary WITHOUT applying (plan §973) — the
+// opposite of the auto-retrying `mutateAgentCatalog`. So this mutates at the
+// captured revision exactly once and surfaces a conflict for the caller to
+// handle, while still serializing on the shared catalog chain.
+export function setTuiAgentEnabledAtRevision(
+  agent: TuiAgent,
+  enabled: boolean,
+  expectedRevision: number
+): Promise<AgentCatalogMutationResult> {
+  const run = catalogChain
+    .catch(() => {})
+    .then(() =>
+      window.api.settings.agentCatalog.mutate({
+        expectedRevision,
+        mutation: { kind: 'set-enabled', agent, enabled }
+      })
+    )
+  catalogChain = run
+  return run
+}
+
+// Permanent delete. `onDefault` is honored only when this id is the current
+// default at the host's revision; the caller omits it for non-default agents.
+export function deleteCustomTuiAgent(
+  id: CustomTuiAgentId,
+  onDefault?: 'keep' | 'base' | 'auto' | 'clear'
+): Promise<AgentCatalogMutationResult> {
+  return mutateAgentCatalog({ kind: 'delete-custom', id, ...(onDefault ? { onDefault } : {}) })
 }
 
 // update-built-in replaces all three launch fields for the agent, so a

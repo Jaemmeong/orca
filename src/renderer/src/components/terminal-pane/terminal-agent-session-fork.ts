@@ -289,7 +289,7 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
   // resume. It routes through the host `agentLaunch` boundary like every other
   // new-tab launch; `promptDelivery: 'draft'` lands the captured context
   // UNSUBMITTED so the user reviews before sending.
-  const result = launchAgentInNewTab({
+  launchAgentInNewTab({
     agent: fork.agent,
     worktreeId: forkWorktreeId,
     prompt: fork.prompt,
@@ -298,10 +298,6 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
     ...(launchPlatform ? { launchPlatform } : {})
   })
   activateAndRevealWorktree(forkWorktreeId, { sidebarRevealBehavior: 'auto' })
-
-  if (!result) {
-    return copyAgentSessionForkContext(fork)
-  }
 
   toast.success(
     translate(

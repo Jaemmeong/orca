@@ -8,6 +8,7 @@ import {
   saveTerminalQuickCommand,
   setDefaultTuiAgent,
   setTuiAgentEnabled,
+  setTuiAgentEnabledAtRevision,
   updateBuiltInTuiAgent
 } from './agent-catalog-authoring'
 
@@ -70,6 +71,27 @@ describe('agent-catalog authoring writes', () => {
       expectedRevision: 5,
       mutation: { kind: 'set-enabled', agent: 'claude', enabled: false }
     })
+  })
+
+  it('disables at a captured revision without fetching or auto-retrying', async () => {
+    // The confirm flow supplies the revision the user saw; a conflict must
+    // surface (not silently reapply) so the dialog can refresh (plan §973).
+    catalogMutate.mockResolvedValueOnce({
+      ok: false,
+      code: 'catalog_revision_conflict',
+      revision: 9,
+      snapshot: { revision: 9 }
+    })
+
+    const result = await setTuiAgentEnabledAtRevision('custom-agent:claude:one' as never, false, 3)
+
+    expect(catalogGetLocal).not.toHaveBeenCalled()
+    expect(catalogMutate).toHaveBeenCalledTimes(1)
+    expect(catalogMutate).toHaveBeenCalledWith({
+      expectedRevision: 3,
+      mutation: { kind: 'set-enabled', agent: 'custom-agent:claude:one', enabled: false }
+    })
+    expect(result.ok).toBe(false)
   })
 
   it('carries the current command and env when only the args field changes', async () => {

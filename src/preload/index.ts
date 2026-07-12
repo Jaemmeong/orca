@@ -1907,7 +1907,9 @@ const api = {
       getLocalDraft: (args: unknown): Promise<unknown> =>
         ipcRenderer.invoke('settings:agentCatalog:getLocalDraft', args),
       referenceSummary: (args: unknown): Promise<unknown> =>
-        ipcRenderer.invoke('settings:agentCatalog:referenceSummary', args)
+        ipcRenderer.invoke('settings:agentCatalog:referenceSummary', args),
+      baseDisableImpact: (args: unknown): Promise<unknown> =>
+        ipcRenderer.invoke('settings:agentCatalog:baseDisableImpact', args)
     },
 
     agentReferences: {

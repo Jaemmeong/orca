@@ -13,6 +13,8 @@ import {
   resolveTuiAgentBaseAgent,
   truncateAgentLabelForDisplay,
   validateAgentLabel,
+  validateBuiltInArgs,
+  validateBuiltInCommandOverride,
   validateCommandOverride,
   validateCustomAgentEnv
 } from './custom-tui-agents'
@@ -166,6 +168,26 @@ describe('command override validation', () => {
     expect(canonicalizeCommandOverride('/plain/codex')).toBe('/plain/codex')
     // Embedded same-quote characters keep the raw value (no second decode).
     expect(canonicalizeCommandOverride('"a"b"')).toBe('"a"b"')
+  })
+
+  it('accepts a multi-token built-in wrapper that the one-executable rule rejects', () => {
+    // Built-in overrides keep wrapper compatibility; only control chars and bounds fail.
+    expect(validateBuiltInCommandOverride('mise exec -- codex')).toBeNull()
+    expect(validateBuiltInCommandOverride('codex && rm -rf /')).toBeNull()
+    expect(validateBuiltInCommandOverride(null)).toBeNull()
+    expect(validateBuiltInCommandOverride('a\nb')).toEqual({
+      field: 'commandOverride',
+      reason: 'control_char'
+    })
+    expect(validateBuiltInCommandOverride('x'.repeat(4097))).toEqual({
+      field: 'commandOverride',
+      reason: 'bounds'
+    })
+  })
+
+  it('bounds built-in args by length only, without the v1 grammar', () => {
+    expect(validateBuiltInArgs('--model "gpt')).toBeNull()
+    expect(validateBuiltInArgs('x'.repeat(8193))).toEqual({ field: 'args', reason: 'bounds' })
   })
 
   it('rejects control characters, unbalanced quoting, operators, and bounds', () => {

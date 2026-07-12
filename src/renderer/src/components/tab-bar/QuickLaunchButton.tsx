@@ -134,16 +134,6 @@ function QuickLaunchAgentMenuItemsInner({
         ...(launchSource !== undefined ? { launchSource } : {}),
         ...(onPromptDelivered !== undefined ? { onPromptDelivered } : {})
       })
-      if (!result) {
-        toast.error(
-          translate(
-            'auto.components.tab.bar.QuickLaunchButton.465e432ef1',
-            'Could not build launch command for {{value0}}.',
-            { value0: label }
-          )
-        )
-        return
-      }
       if (!result.tabId) {
         // Why: paired web clients create the tab on the host; focus follows the
         // next session-tabs snapshot instead of a local tab id.

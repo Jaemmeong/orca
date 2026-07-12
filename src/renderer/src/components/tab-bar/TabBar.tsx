@@ -16,7 +16,6 @@ import {
   Smartphone,
   TerminalSquare
 } from 'lucide-react'
-import { toast } from 'sonner'
 import type {
   BrowserTab as BrowserTabState,
   Tab,
@@ -635,23 +634,12 @@ function TabBarInner({
     }
   }
   const launchAgentFromNewTabEntry = (agent: TuiAgent): void => {
-    const option = agentLaunchOptions.find((candidate) => candidate.agent === agent)
     const result = launchAgentInNewTab({
       agent,
       worktreeId,
       groupId: resolvedGroupId,
       launchSource: 'tab_bar_quick_launch'
     })
-    if (!result) {
-      toast.error(
-        translate(
-          'auto.components.tab.bar.TabBar.ab589350e5',
-          'Could not build launch command for {{value0}}.',
-          { value0: option?.label ?? agent }
-        )
-      )
-      return
-    }
     if (result.tabId) {
       queueTerminalTabFocusAfterNewTabMenuClose(result.tabId)
       return

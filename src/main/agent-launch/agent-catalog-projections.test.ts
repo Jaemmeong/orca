@@ -170,6 +170,36 @@ describe('local snapshot projection', () => {
     expect(snapshot.localStorage.status).toBe('ready')
   })
 
+  it('labels desktop rows configured-executable, custom-path, or baseline-stock', () => {
+    // Desktop-only status source (G8): a configured executable and an accepted
+    // PATH override each defeat baseline stock detection and must be told apart
+    // from a plain stock-prefix row so the UI shows the right status.
+    const configured = liveAgent({ commandOverride: '/usr/local/bin/codex' })
+    const customPath = liveAgent({
+      id: customId('claude', UUID_B),
+      baseAgent: 'claude',
+      label: 'Claude PATH',
+      env: { PATH: '/opt/tools/bin' }
+    })
+    const baselineStock = liveAgent({
+      id: customId('gemini'),
+      baseAgent: 'gemini',
+      label: 'Plain Gemini'
+    })
+    const snapshot = buildLocalAgentCatalogSnapshot(
+      settingsWith({ customTuiAgents: [configured, customPath, baselineStock] }),
+      new AgentCatalogRepairTokenRegistry()
+    )
+    const reasonById = new Map(
+      snapshot.customAgents.flatMap((row) =>
+        row.status === 'ready' ? [[row.definition.id, row.availabilityReason]] : []
+      )
+    )
+    expect(reasonById.get(configured.id)).toBe('configured-executable')
+    expect(reasonById.get(customPath.id)).toBe('custom-path')
+    expect(reasonById.get(baselineStock.id)).toBe('baseline-stock')
+  })
+
   it('keeps repair tokens stable across unrelated revisions', () => {
     const malformed = { id: 'custom-agent:codex:nope', label: 'Bad' }
     const registry = new AgentCatalogRepairTokenRegistry()

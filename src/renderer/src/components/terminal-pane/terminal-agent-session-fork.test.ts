@@ -97,7 +97,6 @@ describe('forkAgentSessionFromPane', () => {
     })
     mockLaunchAgentInNewTab.mockReturnValue({
       tabId: 'tab-2',
-      startupPlan: {},
       pasteDraftAfterLaunch: true
     })
     mockWriteClipboardText.mockResolvedValue(undefined)
@@ -471,31 +470,6 @@ describe('forkAgentSessionFromPane', () => {
     expect(mockLaunchAgentInNewTab).not.toHaveBeenCalled()
     expect(mockWriteClipboardText).not.toHaveBeenCalled()
     expect(mockToast.error).toHaveBeenCalledWith('path already exists')
-  })
-
-  it('copies context when the detected agent cannot queue a startup plan', async () => {
-    store.agentStatusByPaneKey = {
-      [`tab-1:${LEAF_ID}`]: { agentType: 'codex' }
-    }
-    mockLaunchAgentInNewTab.mockReturnValueOnce(null)
-    const pane = makePane('Assistant: current implementation notes')
-    const { forkAgentSessionFromPane } = await import('./terminal-agent-session-fork')
-
-    await forkAgentSessionFromPane({
-      pane,
-      tabId: 'tab-1',
-      worktreeId: 'wt-1',
-      groupId: null
-    })
-
-    expect(mockCreateWorktree).toHaveBeenCalled()
-    expect(mockLaunchAgentInNewTab).toHaveBeenCalled()
-    expect(mockWriteClipboardText).toHaveBeenCalledWith(
-      expect.stringContaining('Assistant: current implementation notes')
-    )
-    expect(mockToast.message).toHaveBeenCalledWith(
-      'Fork context copied. Launch an agent and paste it to start the fork.'
-    )
   })
 
   it('surfaces clipboard failures instead of closing the fallback path silently', async () => {

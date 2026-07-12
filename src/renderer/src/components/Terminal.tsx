@@ -1149,21 +1149,12 @@ function Terminal(): React.JSX.Element | null {
       const targetGroupId =
         state.activeGroupIdByWorktree[activeWorktreeId] ??
         state.groupsByWorktree[activeWorktreeId]?.[0]?.id
-      const result = launchAgentInNewTab({
+      launchAgentInNewTab({
         agent,
         worktreeId: activeWorktreeId,
         groupId: targetGroupId,
         launchSource: 'shortcut'
       })
-      if (!result) {
-        toast.error(
-          translate(
-            'auto.components.Terminal.e57db40c11',
-            'Could not build launch command for {{value0}}.',
-            { value0: agent }
-          )
-        )
-      }
     },
     [activeWorktreeId]
   )

@@ -11,7 +11,6 @@ import { getAgentAwakeDescription, getAgentAwakeTitle } from './agent-awake-copy
 import { AgentAwakeSetting } from './AgentAwakeSetting'
 import { AgentRuntimeSetting } from './AgentRuntimeSetting'
 import {
-  AgentAvailabilityControl,
   AgentPermissionsSetting,
   AgentGeneratedTabTitlesSetting,
   AgentStatusHooksSetting,
@@ -330,45 +329,6 @@ describe('AgentsPane', () => {
     expect(matchesSettingsSearch('command code', getAgentsPaneSearchEntries())).toBe(true)
     expect(matchesSettingsSearch('agy', getAgentsPaneSearchEntries())).toBe(true)
     expect(matchesSettingsSearch('cursor-agent', getAgentsPaneSearchEntries())).toBe(true)
-  })
-
-  it('renders per-agent availability as labeled status choices without row explanation copy', () => {
-    const markup = renderPane({
-      ...getDefaultSettings('/tmp'),
-      disabledTuiAgents: ['claude']
-    })
-
-    expect(markup).toContain('aria-label="Claude availability"')
-    expect(markup).toContain('Enabled')
-    expect(markup).toContain('Disabled')
-    expect(markup).not.toContain('Shown in launch and default choices.')
-    expect(markup).not.toContain('Install to use in launch and default choices.')
-    expect(markup).not.toContain('Hidden from launch and default choices.')
-    expect(markup).not.toContain('aria-label="Enable Claude"')
-    expect(markup).not.toContain('aria-label="Disable Claude"')
-  })
-
-  it('only toggles agent availability when the segmented value changes', () => {
-    const onSetEnabled = vi.fn()
-    const control = AgentAvailabilityControl({
-      label: 'Claude',
-      isEnabled: true,
-      onSetEnabled
-    })
-    const props = control.props as {
-      value: 'enabled' | 'disabled'
-      onChange: (value: 'enabled' | 'disabled') => void
-      ariaLabel: string
-    }
-
-    expect(props.value).toBe('enabled')
-    expect(props.ariaLabel).toBe('Claude availability')
-
-    props.onChange('enabled')
-    expect(onSetEnabled).not.toHaveBeenCalled()
-
-    props.onChange('disabled')
-    expect(onSetEnabled).toHaveBeenCalledWith(false)
   })
 
   it('includes agent runtime search metadata', () => {

@@ -9,6 +9,7 @@ import type { CustomTuiAgentId } from '../../shared/types'
 import type { AgentCatalogMutationRequest } from '../../shared/agent-catalog-snapshot'
 import type { AgentReferenceMutationRequest } from '../../shared/agent-reference-snapshot'
 import { isCustomTuiAgentId } from '../../shared/custom-tui-agents'
+import { isBuiltInTuiAgent } from '../../shared/tui-agent-config'
 import { getOrCreateAgentCatalogService } from '../agent-launch/agent-catalog-service'
 
 export function registerAgentCatalogHandlers(store: Store): void {
@@ -55,6 +56,17 @@ export function registerAgentCatalogHandlers(store: Store): void {
       return []
     }
     return service.getReferenceSummaries(args.id as CustomTuiAgentId)
+  })
+
+  ipcMain.handle('settings:agentCatalog:baseDisableImpact', (_event, args: { base?: unknown }) => {
+    // Only a built-in base can be disabled-as-base; anything else has no impact.
+    if (!args || !isBuiltInTuiAgent(args.base)) {
+      return {
+        savedReferences: { count: 0, atLeast: false },
+        resumableSessions: { count: 0, atLeast: false }
+      }
+    }
+    return service.getBaseDisableImpact(args.base)
   })
 
   ipcMain.handle('settings:agentReferences:getLocal', () => {

@@ -1,13 +1,12 @@
-// Built-in tombstone-reference owner scanners: each reports how many settings/
-// repo/automation/session records still point at a given custom-agent id. A scan
-// that throws returns { ok: false } so the tombstone is conservatively retained.
+// Built-in reference owner scanners: each enumerates the raw agent ids the
+// settings/repo/automation/session records currently point at. The index applies
+// the counting policy (custom-id tombstone GC, or base-disable impact matching);
+// a scan that throws returns { ok: false } so the tombstone is conservatively
+// retained.
 
 import type { Store } from '../persistence'
 import type { GlobalSettings, TerminalQuickCommand } from '../../shared/types'
-import {
-  countReferencedCustomIds,
-  type AgentTombstoneReferenceIndex
-} from './agent-tombstone-reference-index'
+import type { AgentTombstoneReferenceIndex } from './agent-tombstone-reference-index'
 import { getHostAgentSessionRecordStore } from './agent-session-record-store-host'
 import { getHostBackgroundAgentLaunchStore } from './background-agent-launch-store-host'
 
@@ -22,10 +21,7 @@ export function registerBuiltInOwnerScanners(
     owner: 'default',
     scan: () => {
       try {
-        return {
-          ok: true,
-          referenceCounts: countReferencedCustomIds([settings().defaultTuiAgent])
-        }
+        return { ok: true, referencedIds: [settings().defaultTuiAgent] }
       } catch {
         return { ok: false }
       }
@@ -38,9 +34,7 @@ export function registerBuiltInOwnerScanners(
         const commands: TerminalQuickCommand[] = settings().terminalQuickCommands ?? []
         return {
           ok: true,
-          referenceCounts: countReferencedCustomIds(
-            commands.map((command) => ('agent' in command ? command.agent : null))
-          )
+          referencedIds: commands.map((command) => ('agent' in command ? command.agent : null))
         }
       } catch {
         return { ok: false }
@@ -53,10 +47,7 @@ export function registerBuiltInOwnerScanners(
       try {
         return {
           ok: true,
-          referenceCounts: countReferencedCustomIds([
-            settings().commitMessageAi?.agentId,
-            settings().sourceControlAi?.agentId
-          ])
+          referencedIds: [settings().commitMessageAi?.agentId, settings().sourceControlAi?.agentId]
         }
       } catch {
         return { ok: false }
@@ -88,7 +79,7 @@ export function registerBuiltInOwnerScanners(
             }
           }
         }
-        return { ok: true, referenceCounts: countReferencedCustomIds(references) }
+        return { ok: true, referencedIds: references }
       } catch {
         return { ok: false }
       }
@@ -107,7 +98,7 @@ export function registerBuiltInOwnerScanners(
         for (const run of store.listAutomationRuns()) {
           references.push(run.agentLaunchFailure?.requestedAgent)
         }
-        return { ok: true, referenceCounts: countReferencedCustomIds(references) }
+        return { ok: true, referencedIds: references }
       } catch {
         return { ok: false }
       }
@@ -125,7 +116,7 @@ export function registerBuiltInOwnerScanners(
           references.push(meta.pendingAgentLaunch?.requestedAgent)
           references.push(meta.agentLaunchFailure?.requestedAgent)
         }
-        return { ok: true, referenceCounts: countReferencedCustomIds(references) }
+        return { ok: true, referencedIds: references }
       } catch {
         return { ok: false }
       }
@@ -142,9 +133,7 @@ export function registerBuiltInOwnerScanners(
       try {
         return {
           ok: true,
-          referenceCounts: countReferencedCustomIds(
-            getHostAgentSessionRecordStore().referencedRequestedAgents()
-          )
+          referencedIds: getHostAgentSessionRecordStore().referencedRequestedAgents()
         }
       } catch {
         return { ok: false }
@@ -161,9 +150,7 @@ export function registerBuiltInOwnerScanners(
       try {
         return {
           ok: true,
-          referenceCounts: countReferencedCustomIds(
-            getHostBackgroundAgentLaunchStore().referencedRequestedAgents()
-          )
+          referencedIds: getHostBackgroundAgentLaunchStore().referencedRequestedAgents()
         }
       } catch {
         return { ok: false }
@@ -196,7 +183,7 @@ export function registerOrchestrationOwnerScanner(
     owner: 'orchestration',
     scan: () => {
       try {
-        return { ok: true, referenceCounts: countReferencedCustomIds(referencedRequestedAgents()) }
+        return { ok: true, referencedIds: [...referencedRequestedAgents()] }
       } catch {
         return { ok: false }
       }

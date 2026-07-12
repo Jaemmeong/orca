@@ -79,6 +79,7 @@ import type {
   AgentReferenceMutationRequest,
   AgentReferenceMutationResult,
   AgentReferenceSummary,
+  BaseDisableImpact,
   LocalAgentReferenceSnapshot
 } from '../shared/agent-reference-snapshot'
 import type {
@@ -109,6 +110,7 @@ import type {
   ForceDeleteWorktreeBranchResult,
   FsChangedPayload,
   GhosttyImportPreview,
+  BuiltInTuiAgent,
   CustomTuiAgentId,
   GlobalSettings,
   GitBranchCompareResult,
@@ -2198,6 +2200,9 @@ export type PreloadApi = {
       }) => Promise<LocalCustomAgentDraftResult | { status: 'stale' }>
       /** Owner kind + count only; no prompt/config/env. Desktop-only. */
       referenceSummary: (args: { id: CustomTuiAgentId }) => Promise<AgentReferenceSummary[]>
+      /** §973 base-disable impact counts (saved references + resumable sessions);
+       *  counts only, no labels/config. Enabled derivatives stay client-side. */
+      baseDisableImpact: (args: { base: BuiltInTuiAgent }) => Promise<BaseDisableImpact>
     }
     agentReferences: {
       getLocal: () => Promise<LocalAgentReferenceSnapshot>

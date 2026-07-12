@@ -156,11 +156,6 @@ export async function launchSourceControlRecoveryAgentWithDefault({
     launchPlatform: activeSourceControlLaunchPlatform,
     launchSource: 'source_control_recovery'
   })
-  if (!result) {
-    toast.error(copy.launchCommandUnavailable)
-    return false
-  }
-
   if (result.tabId) {
     focusTerminalTabSurface(result.tabId)
   }

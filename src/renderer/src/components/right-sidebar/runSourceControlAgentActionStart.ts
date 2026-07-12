@@ -82,11 +82,11 @@ export async function runSourceControlAgentActionStart({
       launchPlatform,
       launchSource
     })
-    launched = Boolean(result)
-    if (result?.tabId) {
+    launched = true
+    if (result.tabId) {
       focusTerminalTabSurface(result.tabId)
     }
-    if (result?.promptDeliveryResult) {
+    if (result.promptDeliveryResult) {
       try {
         const deliveryResult = await result.promptDeliveryResult
         launched = deliveryResult.delivered

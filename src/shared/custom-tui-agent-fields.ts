@@ -256,6 +256,24 @@ export function validateCommandOverride(value: unknown): AgentFieldIssue | null 
   return null
 }
 
+/** Built-in command overrides keep multi-token wrapper compatibility, so only
+ *  hard bounds and control characters are save-rejected (operator tokens fail at
+ *  launch, repairably) — never the one-executable quote/operator rules above. The
+ *  raw value is preserved, not canonicalized to a single argv element. */
+export function validateBuiltInCommandOverride(value: string | null): AgentFieldIssue | null {
+  if (value === null) {
+    return null
+  }
+  if (value.length > MAX_COMMAND_PATH_LENGTH) {
+    return { field: 'commandOverride', reason: 'bounds' }
+  }
+  // eslint-disable-next-line no-control-regex -- rejecting control chars is the point
+  if (/[\0\r\n\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)) {
+    return { field: 'commandOverride', reason: 'control_char' }
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Args template
 // ---------------------------------------------------------------------------
@@ -273,6 +291,15 @@ export function validateAgentArgs(value: unknown): AgentFieldIssue | null {
   const result = validateAgentArgsTemplate(value)
   if (!result.ok) {
     return { field: 'args', reason: result.reason }
+  }
+  return null
+}
+
+/** Built-in args are legacy shell text tokenized per target shell at launch, not
+ *  the v1 custom grammar, so only the length bound is save-rejected here. */
+export function validateBuiltInArgs(value: string): AgentFieldIssue | null {
+  if (value.length > MAX_AGENT_ARGS_CODE_UNITS) {
+    return { field: 'args', reason: 'bounds' }
   }
   return null
 }

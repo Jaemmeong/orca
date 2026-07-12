@@ -207,6 +207,20 @@ export class AgentSessionRecordStore {
     return [...this.records.values()].map((record) => record.requestedAgent)
   }
 
+  /** Count durable resume records whose base harness is `base`, for §973
+   *  base-disable impact. Records are keyed by their host-attributed base, so a
+   *  derivative launch (baseAgent === base) is counted alongside a direct base
+   *  launch — every session that will block when the harness is disabled. */
+  countRecordsByBase(base: BuiltInTuiAgent): number {
+    let count = 0
+    for (const record of this.records.values()) {
+      if (record.baseAgent === base) {
+        count += 1
+      }
+    }
+    return count
+  }
+
   /** Accept the one-time legacy launch config the renderer surrenders on first
    *  resume. Ignored when the host already owns a record for the key (already
    *  handed over): "renderer hands it over once; host owns it thereafter". */

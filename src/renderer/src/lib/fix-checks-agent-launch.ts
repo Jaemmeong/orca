@@ -200,15 +200,6 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
       launchPlatform,
       launchSource: args.launchSource
     })
-    if (!result) {
-      toast.error(
-        translate(
-          'auto.lib.fix.checks.agent.launch.fb6c294e85',
-          'Could not build the agent launch command.'
-        )
-      )
-      return false
-    }
     if (result.tabId) {
       focusTerminalTabSurface(result.tabId)
     }

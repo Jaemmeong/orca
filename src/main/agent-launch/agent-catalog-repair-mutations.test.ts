@@ -276,4 +276,39 @@ describe('resolve-duplicate-id', () => {
     })
     expect(twoKeeps).toMatchObject({ ok: false, code: 'invalid_agent_field' })
   })
+
+  it('applies nothing when one row in the group is invalid (oracle 36)', () => {
+    // Failure-side atomicity: the first row is fully valid and would be kept, but
+    // the second row's draft is invalid. The mutation must reject wholesale with
+    // no patch — the valid row's mid-loop accumulation is never committed.
+    const settings = duplicateSettings()
+    const registry = new AgentCatalogRepairTokenRegistry()
+    const rows = corruptRowsOf(settings)
+    const result = apply({
+      settings,
+      repairTokens: registry,
+      mutation: {
+        kind: 'resolve-duplicate-id',
+        duplicateId: id,
+        rows: [
+          {
+            repairToken: registry.tokenFor(rows[0]),
+            action: {
+              kind: 'keep-for-existing-references',
+              repairedDraft: draft({ label: 'Kept' })
+            }
+          },
+          {
+            repairToken: registry.tokenFor(rows[1]),
+            action: { kind: 'replace', baseAgent: 'codex', draft: draft({ label: '' }) }
+          }
+        ]
+      }
+    })
+    // field:'label' pins the failure to row1's draft validation, not row0's
+    // parsedBase guard (which returns invalid_agent_field with no field) — so this
+    // can only pass if row0 was accepted mid-loop and then discarded on reject.
+    expect(result).toMatchObject({ ok: false, code: 'invalid_agent_field', field: 'label' })
+    expect((result as { patch?: unknown }).patch).toBeUndefined()
+  })
 })

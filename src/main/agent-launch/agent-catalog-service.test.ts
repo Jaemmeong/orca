@@ -394,6 +394,93 @@ describe('background owner (host-private generic launch attempts)', () => {
   })
 })
 
+describe('base-disable impact (§973)', () => {
+  const recordStore = getHostAgentSessionRecordStore()
+  const derivId = customId('claude', UUID_A)
+  const otherBaseId = customId('codex', UUID_B)
+
+  afterEach(() => {
+    recordStore.rebuildRecordsFrom([])
+    vi.restoreAllMocks()
+  })
+
+  function sessionRecord(
+    baseAgent: 'claude' | 'codex',
+    requestedAgent: TuiAgent,
+    sessionId: string
+  ): HostSessionLaunchRecord {
+    return {
+      worktreeId: 'wt-impact',
+      requestedAgent,
+      baseAgent,
+      // Both claude and codex key on 'session_id' (only antigravity differs); the
+      // key value is irrelevant here — countRecordsByBase reads baseAgent only.
+      providerSession: { key: 'session_id', id: sessionId },
+      registeredAt: 1,
+      updatedAt: 1
+    }
+  }
+
+  function impactService(state: Partial<StoreStubState> = {}): AgentCatalogService {
+    const fullState: StoreStubState = {
+      settings: baseSettings({
+        defaultTuiAgent: 'claude',
+        customTuiAgents: [
+          liveAgent({ id: derivId, baseAgent: 'claude', label: 'Claude Deriv' }),
+          liveAgent({ id: otherBaseId, baseAgent: 'codex', label: 'Codex Custom' })
+        ],
+        terminalQuickCommands: [
+          agentQuickCommand(derivId),
+          { id: 'qc-2', label: 'Q2', action: 'agent-prompt', agent: 'codex', prompt: 'p' }
+        ]
+      }),
+      repos: [],
+      automations: [],
+      ...state
+    }
+    return new AgentCatalogService(makeStoreStub(fullState))
+  }
+
+  it('counts base-direct + derivative saved references (excluding sessions) and resumable sessions by base', () => {
+    const service = impactService()
+    // A claude session on the derivative is counted as a session, NOT double-counted
+    // under savedReferences; a codex session on a different base is ignored for claude.
+    recordStore.rebuildRecordsFrom([
+      sessionRecord('claude', derivId, 'sess-claude'),
+      sessionRecord('codex', otherBaseId, 'sess-codex')
+    ])
+    const impact = service.getBaseDisableImpact('claude')
+    // default 'claude' (base-direct) + quick-command on the derivative = 2.
+    expect(impact.savedReferences).toEqual({ count: 2, atLeast: false })
+    expect(impact.resumableSessions).toEqual({ count: 1, atLeast: false })
+  })
+
+  it('reports atLeast on saved references when a reference owner store cannot be read', () => {
+    const service = impactService({ failAutomationScan: true })
+    const impact = service.getBaseDisableImpact('claude')
+    // Readable owners (default + quick-command) still count; automation is unknown.
+    expect(impact.savedReferences).toEqual({ count: 2, atLeast: true })
+    expect(impact.resumableSessions.atLeast).toBe(false)
+  })
+
+  it('reports atLeast on resumable sessions when the record store cannot be read', () => {
+    const service = impactService()
+    vi.spyOn(recordStore, 'countRecordsByBase').mockImplementation(() => {
+      throw new Error('store unavailable')
+    })
+    const impact = service.getBaseDisableImpact('claude')
+    expect(impact.resumableSessions).toEqual({ count: 0, atLeast: true })
+    expect(impact.savedReferences.atLeast).toBe(false)
+  })
+
+  it('returns zero impact for a base with no references or sessions', () => {
+    const service = impactService()
+    const impact = service.getBaseDisableImpact('gemini')
+    expect(impact.savedReferences).toEqual({ count: 0, atLeast: false })
+    expect(impact.resumableSessions).toEqual({ count: 0, atLeast: false })
+  })
+})
+
 describe('delete -> tombstone -> reference lifecycle', () => {
   it('keeps the tombstone alive through delete while a quick command references it', () => {
     const live = liveAgent()
