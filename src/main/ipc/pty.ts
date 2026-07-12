@@ -116,13 +116,10 @@ import {
 import { registerPty, unregisterPty } from '../memory/pty-registry'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
 import { track } from '../telemetry/client'
+import { buildAgentStartedAttribution } from '../telemetry/agent-started-telemetry'
 import { classifyError } from '../telemetry/classify-error'
 import { getCohortAtEmit } from '../telemetry/cohort-classifier'
-import {
-  agentKindSchema,
-  launchSourceSchema,
-  requestKindSchema
-} from '../../shared/telemetry-events'
+import { agentKindSchema } from '../../shared/telemetry-events'
 import {
   isTerminalInputTooLargeWithDeferredMeasurement,
   iterateTerminalInputChunks
@@ -3275,18 +3272,13 @@ export function registerPtyHandlers(
         if (isClaudeLaunch) {
           markClaudePtySpawned(result.id)
         }
-        if (args.telemetry) {
-          const agentKindParse = agentKindSchema.safeParse(args.telemetry.agent_kind)
-          const launchSourceParse = launchSourceSchema.safeParse(args.telemetry.launch_source)
-          const requestKindParse = requestKindSchema.safeParse(args.telemetry.request_kind)
-          if (agentKindParse.success && launchSourceParse.success && requestKindParse.success) {
-            track('agent_started', {
-              agent_kind: agentKindParse.data,
-              launch_source: launchSourceParse.data,
-              request_kind: requestKindParse.data,
-              ...getCohortAtEmit()
-            })
-          }
+        // Host-owned agent_started emit for runtime/CLI/worktree-create spawns
+        // (kind + used_custom_agent host-derived on the resolved launch upstream).
+        const runtimeAttribution = args.telemetry
+          ? buildAgentStartedAttribution(args.telemetry)
+          : null
+        if (runtimeAttribution) {
+          track('agent_started', { ...runtimeAttribution, ...getCohortAtEmit() })
         }
         // Why: runtime-owned CLI PTYs bypass the renderer `pty:spawn` handler,
         // so record their spawn-time paneKey here too. Synthetic hook titles and
@@ -3687,6 +3679,9 @@ export function registerPtyHandlers(
           agent_kind?: unknown
           launch_source?: unknown
           request_kind?: unknown
+          // Host-derived on a resolved launch; a client-supplied value is vestigial
+          // (the resolver overwrites it below). Absent/invalid => not a custom agent.
+          used_custom_agent?: unknown
         }
       }
     ) => {
@@ -3967,6 +3962,17 @@ export function registerPtyHandlers(
           // agent; the requested (possibly custom) identity travels in the receipt.
           args.launchAgent = resolution.receipt.baseAgent
           args.launchToken = resolution.receipt.launchToken
+          // Oracle 17: overwrite the client-threaded agent_kind + used_custom_agent
+          // with the host-validated values from the resolved receipt (a spoofed
+          // client marker never reaches the wire). Only when the surface threaded
+          // telemetry — a launch without launch_source/request_kind stays silent.
+          if (args.telemetry) {
+            args.telemetry = {
+              ...args.telemetry,
+              agent_kind: resolution.receipt.telemetry.agentKind,
+              used_custom_agent: resolution.receipt.telemetry.usedCustomAgent
+            }
+          }
           if (resolution.plan.startupCommandDelivery !== undefined) {
             args.startupCommandDelivery = resolution.plan.startupCommandDelivery
           }
@@ -4705,24 +4711,16 @@ export function registerPtyHandlers(
         // only after `provider.spawn` resolved. The renderer threads
         // `args.telemetry` through the spawn IPC for every launch we want to
         // attribute; bare-shell tabs (no agent) leave the field undefined and
-        // do not produce an event. Each field is parsed against its closed
-        // enum here so a malformed renderer payload (or a spoofed IPC) does
-        // not poison the event — `safeParse` failure drops that field, and
-        // if any required field is missing we skip the event entirely. The
-        // main-side `track()` validator re-runs the schema on the full
-        // payload as a second defense-in-depth check.
-        if (args.telemetry) {
-          const agentKindParse = agentKindSchema.safeParse(args.telemetry.agent_kind)
-          const launchSourceParse = launchSourceSchema.safeParse(args.telemetry.launch_source)
-          const requestKindParse = requestKindSchema.safeParse(args.telemetry.request_kind)
-          if (agentKindParse.success && launchSourceParse.success && requestKindParse.success) {
-            track('agent_started', {
-              agent_kind: agentKindParse.data,
-              launch_source: launchSourceParse.data,
-              request_kind: requestKindParse.data,
-              ...getCohortAtEmit()
-            })
-          }
+        // do not produce an event. agent_kind + used_custom_agent were
+        // overwritten host-side from the resolved receipt above (client values
+        // vestigial); the shared builder re-validates every field against its
+        // closed enum so a malformed/spoofed payload drops the event rather
+        // than poisoning it, and `track()` re-runs the schema as a second check.
+        const spawnAttribution = args.telemetry
+          ? buildAgentStartedAttribution(args.telemetry)
+          : null
+        if (spawnAttribution) {
+          track('agent_started', { ...spawnAttribution, ...getCohortAtEmit() })
         }
         // Why: the PTY is registered — move the admission reservation to a
         // retained handoff so reconciliation can identify the surviving terminal.

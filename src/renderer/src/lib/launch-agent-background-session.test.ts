@@ -64,6 +64,12 @@ const state = {
     agentCmdOverrides: {},
     activeRuntimeEnvironmentId: null as string | null,
     terminalMainSideEffectAuthority: undefined as boolean | undefined
+  } as {
+    agentCmdOverrides: Record<string, unknown>
+    activeRuntimeEnvironmentId: string | null
+    terminalMainSideEffectAuthority: boolean | undefined
+    customTuiAgents?: { id: string; baseAgent: string; label: string }[]
+    deletedCustomTuiAgents?: { id: string; baseAgent: string; label: string }[]
   },
   projects: [
     {
@@ -426,6 +432,33 @@ describe('launchAgentBackgroundSession', () => {
       selection: { kind: 'agent', agent: 'codex' },
       prompt: 'run the automation'
     })
+  })
+
+  // Registry safety (oracle 16): a custom background agent must pre-mark trust
+  // with its base harness's preset (a raw registry index would crash/degrade).
+  it('pre-marks trust for a custom-based background agent using its base preset', async () => {
+    const customId = 'custom-agent:codex:11111111-1111-4111-8111-111111111111'
+    state.settings.customTuiAgents = [{ id: customId, baseAgent: 'codex', label: 'My Codex' }]
+    try {
+      const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
+      await launchAgentBackgroundSession({
+        agent: customId,
+        worktreeId: 'wt-1',
+        prompt: 'run the automation'
+      })
+
+      expect(mockMarkTrusted).toHaveBeenCalledWith({
+        preset: 'codex',
+        workspacePath: '/repo/worktree'
+      })
+      // The client still names the requested (custom) identity; the host resolves it.
+      expect(mockSpawn.mock.calls[0]?.[0].agentLaunch).toEqual({
+        selection: { kind: 'agent', agent: customId },
+        prompt: 'run the automation'
+      })
+    } finally {
+      state.settings.customTuiAgents = []
+    }
   })
 
   it('parses agent status from hidden PTY output using the receipt token', async () => {

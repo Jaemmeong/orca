@@ -12,6 +12,7 @@ vi.mock('@/lib/worktree-activation', () => ({
 }))
 
 import { submitFolderWorkspaceCreate } from './folder-workspace-composer-submit'
+import { useAppStore } from '@/store'
 
 function makeProjectGroup(): ProjectGroup {
   return {
@@ -297,6 +298,49 @@ describe('submitFolderWorkspaceCreate', () => {
       prompt: linkedWorkItem.url,
       promptDelivery: 'draft'
     })
+  })
+
+  // Registry safety (oracle 16): a custom quick-create agent must pre-mark trust
+  // with its base harness's preset, not crash on the built-in-only config index.
+  it('pre-marks a custom-based quick agent using its base harness trust preset', async () => {
+    const customId = 'custom-agent:codex:11111111-1111-4111-8111-111111111111'
+    const originalSettings = useAppStore.getState().settings
+    useAppStore.setState({
+      settings: {
+        ...originalSettings,
+        customTuiAgents: [
+          { id: customId, baseAgent: 'codex', label: 'My Codex', args: '', env: {}, syncEnv: false }
+        ]
+      }
+    } as never)
+    try {
+      const createFolderWorkspace = vi.fn(async () => makeFolderWorkspace())
+      await submitFolderWorkspaceCreate({
+        projectGroup: makeProjectGroup(),
+        name: 'Custom trust',
+        lastAutoName: '',
+        linkedWorkItem: {
+          provider: 'github' as const,
+          type: 'pr' as const,
+          number: 7,
+          title: 'Custom trust',
+          url: 'https://github.com/stablyai/orca/pull/7',
+          repoId: 'repo-1'
+        },
+        note: '',
+        quickAgent: customId,
+        autoRenameBranchFromWork: false,
+        createFolderWorkspace,
+        onOpenChange: vi.fn()
+      })
+
+      expect(window.api.agentTrust?.markTrusted).toHaveBeenCalledWith({
+        preset: 'codex',
+        workspacePath: '/repo/platform/hi'
+      })
+    } finally {
+      useAppStore.setState({ settings: originalSettings } as never)
+    }
   })
 
   it('folds non-linked notes into the launch for agents that need stdin after launch', async () => {

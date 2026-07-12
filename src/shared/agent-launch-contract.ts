@@ -6,6 +6,7 @@
 
 import type { BuiltInTuiAgent, TuiAgent } from './types'
 import type { AgentStartupShell } from './tui-agent-startup-shell'
+import type { AgentKind } from './telemetry-events'
 
 /** Serializable intent kind persisted in records; the richer LaunchIntent union
  *  is host-only and never an RPC parameter. */
@@ -114,4 +115,9 @@ export type AgentLaunchReceipt = {
   notices: readonly AgentLaunchNotice[]
   launchToken: string
   catalogRevision: number
+  // Host-derived agent_started attribution: the base kind and whether a custom
+  // agent launched (snapshot mode === 'custom'). Client-safe (closed enum +
+  // boolean) — never a requested id/label. The single authority the emitters and
+  // the host create-emit read so client-supplied agent_kind stays vestigial.
+  telemetry: { agentKind: AgentKind; usedCustomAgent: boolean }
 }

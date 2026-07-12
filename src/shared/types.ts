@@ -2064,7 +2064,16 @@ export type WorktreeStartupLaunch = {
   launchToken?: string
   launchAgent?: TuiAgent
   startupCommandDelivery?: StartupCommandDelivery
-  telemetry?: { agent_kind: AgentKind; launch_source: LaunchSource; request_kind: RequestKind }
+  // agent_kind + used_custom_agent are host-authoritative on a resolved launch
+  // (the host overwrites them before spawn from the validated snapshot/receipt);
+  // launch_source/request_kind are surface-owned. used_custom_agent is optional so
+  // the legacy client-startup path (no host marker) still typechecks.
+  telemetry?: {
+    agent_kind: AgentKind
+    launch_source: LaunchSource
+    request_kind: RequestKind
+    used_custom_agent?: boolean
+  }
 }
 
 export type WorktreeDefaultTabsLaunch = {

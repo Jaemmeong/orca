@@ -146,7 +146,8 @@ export class AgentLaunchBoundary {
         baseAgent: original.baseAgent,
         notices: dedupeNoticesByCode(original.notices),
         launchToken: token,
-        catalogRevision
+        catalogRevision,
+        telemetry: original.telemetry
       }
     }
   }

@@ -2663,6 +2663,36 @@ describe('connectPanePty', () => {
     )
   })
 
+  // Registry safety (oracle 16): a custom startup launch agent must resolve its
+  // draft-prefill config from the base harness, not crash on a raw registry index.
+  it('resolves a custom startup launch agent to its base config without crashing', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-custom-claude')
+    transportFactoryQueue.push(transport)
+    const customId = 'custom-agent:claude:11111111-1111-4111-8111-111111111111'
+    mockStoreState = {
+      ...mockStoreState,
+      tabsByWorktree: { 'wt-1': [{ id: 'tab-1', ptyId: null }] },
+      repos: [{ id: 'repo1', connectionId: null }],
+      settings: {
+        ...mockStoreState.settings,
+        customTuiAgents: [
+          { id: customId, baseAgent: 'claude', label: 'My Claude', args: '', env: {}, syncEnv: false }
+        ]
+      }
+    } as StoreState
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const deps = createDeps({
+      startup: { command: '', launchAgent: customId, draftPrompt: 'Draft this' }
+    })
+
+    expect(() => connectPanePty(pane as never, manager as never, deps as never)).not.toThrow()
+    await flushAsyncTicks()
+    expect(createdTransportOptions[0]).toBeDefined()
+  })
+
   it('seeds a working status from Command Code thinking output without a startup prompt', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }

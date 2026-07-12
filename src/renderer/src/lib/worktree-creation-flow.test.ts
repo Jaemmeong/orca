@@ -646,6 +646,13 @@ describe('worktree creation flow agent trust preflight', () => {
 
     expect(preflight).toContain('connectionId?: string | null')
     expect(preflight).toContain('...(connectionId ? { connectionId } : {})')
+    // Registry safety (oracle 16): the preflight must resolve a custom id to its
+    // base harness's trust preset instead of indexing the built-in-only config
+    // (which yields undefined and crashes on `.preflightTrust`).
+    expect(preflight).toContain('resolveTuiAgentConfig(')
+    expect(preflight).toContain('settings?.customTuiAgents')
+    expect(preflight).toContain('settings?.deletedCustomTuiAgents')
+    expect(preflight).not.toContain('TUI_AGENT_CONFIG[request.agent]')
     expect(createFlow).toContain('repoConnectionId')
     expect(createFlow).toContain('repo.id === worktree.repoId')
     expect(createFlow).toContain(
