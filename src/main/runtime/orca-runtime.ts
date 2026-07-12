@@ -221,7 +221,8 @@ import { resolveLocalWindowsAgentStartupShell } from '../../shared/windows-termi
 import {
   getTuiAgentLaunchCommand,
   isTuiAgent,
-  TUI_AGENT_CONFIG
+  TUI_AGENT_CONFIG,
+  type TuiAgentConfig
 } from '../../shared/tui-agent-config'
 import { resolveTuiAgentConfig } from '../../shared/custom-tui-agents'
 import { createDraftPasteReadyScanner } from '../../shared/draft-paste-ready-scanner'
@@ -14192,8 +14193,7 @@ export class OrcaRuntimeService {
     connectionId: string,
     workspacePath: string
   ): Promise<void> {
-    const base = this.resolveAgentBaseForRegistry(agent)
-    const preset = base ? TUI_AGENT_CONFIG[base].preflightTrust : undefined
+    const preset = this.resolveAgentConfigForRegistry(agent)?.preflightTrust
     if (!preset) {
       return
     }
@@ -14448,9 +14448,8 @@ export class OrcaRuntimeService {
     if (!ptyId) {
       return Promise.resolve(null)
     }
-    const base = this.resolveAgentBaseForRegistry(agent)
     const readySignal =
-      (base ? TUI_AGENT_CONFIG[base].draftPasteReadySignal : undefined) ??
+      this.resolveAgentConfigForRegistry(agent)?.draftPasteReadySignal ??
       'render-quiet-after-bracketed-paste'
     return new Promise<string | null>((resolve) => {
       let settled = false

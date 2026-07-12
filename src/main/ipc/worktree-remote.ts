@@ -56,8 +56,8 @@ import {
 import { requireSshGitProvider } from '../providers/ssh-git-dispatch'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import type { SshGitProvider } from '../providers/ssh-git-provider'
-import { TUI_AGENT_CONFIG, isTuiAgent } from '../../shared/tui-agent-config'
-import { resolveTuiAgentBaseAgent } from '../../shared/custom-tui-agents'
+import { isTuiAgent } from '../../shared/tui-agent-config'
+import { resolveTuiAgentConfig } from '../../shared/custom-tui-agents'
 import { isWindowsAbsolutePathLike } from '../../shared/cross-platform-path'
 import { getSshGitUsername } from '../git/git-username'
 import { runWorktreeChangeInvalidators } from './worktree-change-invalidators'
@@ -275,15 +275,15 @@ async function spawnLocalStartupAndSetupTerminals(args: {
     // Why: after `git worktree add` and metadata registration, a runtime-owned
     // PTY can begin booting the selected agent while setup runs in a sibling
     // terminal. Earlier than this, the worktree path is not yet safe for agents.
-    // Resolve to base before indexing the built-in-only registry: a custom id's
-    // trust preset comes from its base harness, never a static custom-id lookup.
-    const trustBase = resolveTuiAgentBaseAgent(
+    // Resolve to the base config before reading it: a custom id's trust preset
+    // comes from its base harness, never a static custom-id registry lookup.
+    const trustConfig = resolveTuiAgentConfig(
       createdWithAgent,
       settings.customTuiAgents,
       settings.deletedCustomTuiAgents
     )
-    if (trustBase) {
-      const preset = TUI_AGENT_CONFIG[trustBase].preflightTrust
+    if (trustConfig) {
+      const preset = trustConfig.preflightTrust
       try {
         if (preset === 'cursor') {
           markCursorWorkspaceTrusted(worktree.path)

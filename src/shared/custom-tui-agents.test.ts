@@ -11,6 +11,7 @@ import {
   normalizeAgentLabelKey,
   parseCustomTuiAgentId,
   resolveTuiAgentBaseAgent,
+  resolveTuiAgentConfig,
   truncateAgentLabelForDisplay,
   validateAgentLabel,
   validateBuiltInArgs,
@@ -18,6 +19,7 @@ import {
   validateCommandOverride,
   validateCustomAgentEnv
 } from './custom-tui-agents'
+import { TUI_AGENT_CONFIG } from './tui-agent-config'
 
 const UUID_A = '01234567-89ab-4cde-8f01-23456789abcd'
 const UUID_B = 'fedcba98-7654-4321-8fed-cba987654321'
@@ -462,5 +464,37 @@ describe('resolveTuiAgentBaseAgent', () => {
     ).toBe('claude')
     expect(resolveTuiAgentBaseAgent(customId('codex', UUID_B), [live])).toBeNull()
     expect(resolveTuiAgentBaseAgent(null)).toBeNull()
+  })
+})
+
+describe('resolveTuiAgentConfig (base accessor, oracle 16)', () => {
+  const live = liveAgent() // baseAgent: 'codex'
+  const tombstone: DeletedCustomTuiAgent = {
+    id: customId('claude', UUID_B),
+    baseAgent: 'claude',
+    label: 'Gone',
+    deletedAt: 1
+  }
+
+  it('returns the base config for a built-in id (identity)', () => {
+    expect(resolveTuiAgentConfig('claude')).toBe(TUI_AGENT_CONFIG.claude)
+  })
+
+  it('resolves a live custom id to its base config, never undefined', () => {
+    const config = resolveTuiAgentConfig(live.id, [live])
+    expect(config).toBe(TUI_AGENT_CONFIG.codex)
+    // The oracle-16 hazard: a raw TUI_AGENT_CONFIG[customId] would be undefined.
+    expect(config).not.toBeUndefined()
+    expect(config?.promptInjectionMode).toBe(TUI_AGENT_CONFIG.codex.promptInjectionMode)
+  })
+
+  it('resolves a tombstoned custom id to its base config', () => {
+    expect(resolveTuiAgentConfig(tombstone.id, [], [tombstone])).toBe(TUI_AGENT_CONFIG.claude)
+  })
+
+  it('returns null for an unresolvable or empty id (never a static-map read)', () => {
+    expect(resolveTuiAgentConfig(customId('codex', UUID_B), [live])).toBeNull()
+    expect(resolveTuiAgentConfig(null)).toBeNull()
+    expect(resolveTuiAgentConfig(undefined)).toBeNull()
   })
 })
