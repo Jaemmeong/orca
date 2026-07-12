@@ -88,6 +88,8 @@ const FORGET_ARGS = { expectedOperationId: 'op-1', clientMutationId: 'cmid-1' }
 describe('forgetRevokedRemoteWorktreeAgentLaunch', () => {
   beforeEach(() => {
     forgetSpy.mockClear()
+    // Drop any per-test mockImplementation; stubRuntime re-sets the return value.
+    capacityMock.mockReset()
   })
 
   it('forgets a row whose owning mobile principal is revoked, under that principal', async () => {
@@ -154,15 +156,18 @@ describe('forgetRevokedRemoteWorktreeAgentLaunch', () => {
 
   it('re-gates revocation on EVERY row: a device reconnecting mid-sequence blocks the next row', async () => {
     // Two stranded mobile-owned rows; the paired set is read live per call.
-    const runtime = stubRuntime(
-      [row({ scope: 'wt-row1' }), row({ scope: 'wt-row2' })],
-      []
-    )
+    const rows = [row({ scope: 'wt-row1' }), row({ scope: 'wt-row2' })]
+    const runtime = stubRuntime(rows, [])
     let pairedNow: DeviceScope[] = []
     const internals = runtime as unknown as {
       getPairedDeviceScopesFn: () => readonly DeviceScope[]
     }
     internals.getPairedDeviceScopesFn = () => pairedNow
+    // Faithful ownership: both rows belong to the mobile principal only, so the
+    // runtime principal's capacity view is empty (unlike the shared-rows default).
+    capacityMock.mockImplementation((principal) =>
+      (principal as { id?: string }).id === 'mobile' ? rows : []
+    )
 
     // Row 1: mobile revoked (no paired device) -> forgotten.
     const first = await runtime.forgetRevokedRemoteWorktreeAgentLaunch('id:wt-row1', FORGET_ARGS)
