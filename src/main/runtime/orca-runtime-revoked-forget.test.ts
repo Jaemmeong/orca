@@ -152,6 +152,35 @@ describe('forgetRevokedRemoteWorktreeAgentLaunch', () => {
     )
   })
 
+  it('re-gates revocation on EVERY row: a device reconnecting mid-sequence blocks the next row', async () => {
+    // Two stranded mobile-owned rows; the paired set is read live per call.
+    const runtime = stubRuntime(
+      [row({ scope: 'wt-row1' }), row({ scope: 'wt-row2' })],
+      []
+    )
+    let pairedNow: DeviceScope[] = []
+    const internals = runtime as unknown as {
+      getPairedDeviceScopesFn: () => readonly DeviceScope[]
+    }
+    internals.getPairedDeviceScopesFn = () => pairedNow
+
+    // Row 1: mobile revoked (no paired device) -> forgotten.
+    const first = await runtime.forgetRevokedRemoteWorktreeAgentLaunch('id:wt-row1', FORGET_ARGS)
+    expect(first).toEqual({ status: 'forgotten' })
+
+    // A mobile device reconnects between rows: the principal is no longer revoked.
+    pairedNow = ['mobile']
+
+    // Row 2: the SAME sequence, but the live re-gate now blocks it (not a stale
+    // dialog-open snapshot) -> rejected, and the reconciler runs only for row 1.
+    const second = await runtime.forgetRevokedRemoteWorktreeAgentLaunch('id:wt-row2', FORGET_ARGS)
+    expect(second).toEqual({
+      status: 'rejected',
+      requestError: { code: 'stale_agent_launch_failure' }
+    })
+    expect(forgetSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects when no revoked remote principal owns the row', async () => {
     // All remotes revoked, but the addressed worktree appears in no capacity row.
     const runtime = stubRuntime([row({ scope: 'wt-mobile' })], [])

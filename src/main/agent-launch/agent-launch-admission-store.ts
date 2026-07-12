@@ -23,8 +23,14 @@ export const MAX_PENDING_LAUNCHES_REMOTE_TOTAL = 192
 // a worktree-scoped cap stops a single workspace from monopolizing host capacity.
 export const MAX_PENDING_LAUNCHES_PER_WORKTREE = 8
 
-/** Stable authenticated principal: device or runtime-host id for remote
- *  callers, the local desktop/host otherwise. Never a per-connection value. */
+/** Stable authenticated principal: the remote caller's clientKind ('mobile' |
+ *  'runtime') for remote callers, the local desktop/host otherwise. Never a
+ *  per-connection value.
+ *  U10 marker (§U9 ledger #18): despite "id", this is TODAY the coarse clientKind,
+ *  NOT a per-device id — every same-kind paired device shares one principal. Do not
+ *  treat `id` as device-granular until per-device admission principals land (the
+ *  revoked-principal forget override reads revocation at clientKind granularity for
+ *  exactly this reason). */
 export type AdmissionPrincipal = { kind: 'local' } | { kind: 'remote'; id: string }
 
 export type AdmittedLaunchRecord = {
