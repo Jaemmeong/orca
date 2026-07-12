@@ -575,6 +575,12 @@ function shouldKeepHiddenStartupRendererQueriesLive(
   startup: PtyConnectionDeps['startup']
 ): boolean {
   return (
+    // Why: on the host-resolved launch path the command is assembled host-side
+    // (startup.command is ''), so the explicit agent identity is the signal that
+    // this hidden startup is a TUI whose query chunks must stay live. The
+    // agent_kind clause still covers legacy launches whose wrapper command isn't a
+    // recognizable TUI name and that thread telemetry instead of an identity.
+    Boolean(startup?.agentLaunch || startup?.launchAgent) ||
     Boolean(startup?.telemetry?.agent_kind && startup.telemetry.agent_kind !== 'other') ||
     isKnownTuiAgentTerminalStartupCommand(startup?.command ?? '')
   )

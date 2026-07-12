@@ -9641,6 +9641,76 @@ describe('connectPanePty', () => {
     binding.dispose()
   })
 
+  it('keeps hidden agent-launch query chunks live from the agentLaunch identity (empty command)', async () => {
+    // The host-resolved launch path sends command:'' (host assembles it), so the
+    // agentLaunch identity — not the command string — must gate keeping hidden
+    // query chunks live for xterm to answer them.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-id')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-id'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const binding = connectPanePty(
+      pane as never,
+      manager as never,
+      createDeps({
+        isVisibleRef: { current: false },
+        startup: {
+          command: '',
+          agentLaunch: {
+            selection: { kind: 'agent', agent: 'codex' },
+            allowEmptyPromptLaunch: true
+          }
+        }
+      }) as never
+    )
+    await flushAsyncTicks(6)
+
+    capturedDataCallback.current?.('\x1b[c')
+
+    expect(pane.terminal.write).toHaveBeenCalledWith('\x1b[c', expect.any(Function))
+
+    binding.dispose()
+  })
+
+  it('does not keep hidden query chunks live for a bare shell (no agent identity, empty command)', async () => {
+    // Contrast: a plain hidden shell has no agentLaunch/launchAgent and no known
+    // TUI command, so the renderer must NOT hold its query chunks live (main owns
+    // the replies) — proving the identity signal is specific, not always-on.
+    const { connectPanePty } = await import('./pty-connection')
+    const transport = createMockTransport('pty-id')
+    const capturedDataCallback: { current: ((data: string) => void) | null } = { current: null }
+    transport.connect.mockImplementation(async ({ callbacks }: { callbacks: ConnectCallbacks }) => {
+      capturedDataCallback.current = callbacks.onData ?? null
+      return 'pty-id'
+    })
+    transportFactoryQueue.push(transport)
+
+    const pane = createPane(1)
+    const manager = createManager(1)
+    const binding = connectPanePty(
+      pane as never,
+      manager as never,
+      createDeps({
+        isVisibleRef: { current: false },
+        startup: { command: '' }
+      }) as never
+    )
+    await flushAsyncTicks(6)
+
+    capturedDataCallback.current?.('\x1b[c')
+
+    expect(pane.terminal.write).not.toHaveBeenCalledWith('\x1b[c', expect.any(Function))
+
+    binding.dispose()
+  })
+
   it('keeps only coalesced hidden Codex terminal queries on the live xterm path', async () => {
     const { connectPanePty } = await import('./pty-connection')
     const transport = createMockTransport('pty-id')
