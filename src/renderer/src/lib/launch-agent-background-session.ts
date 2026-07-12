@@ -8,7 +8,7 @@ import { AgentLaunchSpawnOutcomeError } from '@/lib/agent-launch-spawn-outcome-e
 import { requestBackgroundTerminalWorktreeMount } from '@/components/terminal/background-terminal-worktree-mount'
 import { pasteDraftWhenAgentReady } from '@/lib/agent-paste-draft'
 import { showAutomationPromptNotSentToast } from '@/lib/agent-background-session-timeout-toast'
-import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
+import { resolveTuiAgentConfig } from '../../../shared/custom-tui-agents'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import {
   registerEagerPtyBuffer,
@@ -52,9 +52,14 @@ export async function launchAgentBackgroundSession(
   if (!worktree) {
     throw new Error('The target workspace is no longer available.')
   }
-  // Why: preflight trust is keyed on a built-in preset; a custom id resolves to
-  // its base host-side, so only pre-mark when the requested id is itself built-in.
-  const preflight = TUI_AGENT_CONFIG[agent]?.preflightTrust
+  // Why: a custom id inherits its base harness's trust preset; resolve the base
+  // from the requested id before reading the built-in-only config so a
+  // custom-based agent still pre-marks trust and a tombstoned id degrades.
+  const preflight = resolveTuiAgentConfig(
+    agent,
+    store.settings?.customTuiAgents,
+    store.settings?.deletedCustomTuiAgents
+  )?.preflightTrust
   if (preflight && worktree.path && window.api.agentTrust?.markTrusted) {
     try {
       await window.api.agentTrust.markTrusted({

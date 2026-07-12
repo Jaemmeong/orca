@@ -1,6 +1,6 @@
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import { TUI_AGENT_CONFIG } from '../../../shared/tui-agent-config'
+import { resolveTuiAgentConfig } from '../../../shared/custom-tui-agents'
 import {
   activateAndRevealWorktree,
   ensureWorktreeHasInitialTerminal,
@@ -87,7 +87,15 @@ async function preflightAgentTrust(
   if (!request.agent || !window.api.agentTrust?.markTrusted) {
     return
   }
-  const preflight = TUI_AGENT_CONFIG[request.agent].preflightTrust
+  // Why: a custom id inherits its base harness's trust preset; resolve the base
+  // before reading the built-in-only config so a raw custom id degrades instead
+  // of crashing on an undefined entry (noImplicitAny hides the unsafe index).
+  const { settings } = useAppStore.getState()
+  const preflight = resolveTuiAgentConfig(
+    request.agent,
+    settings?.customTuiAgents,
+    settings?.deletedCustomTuiAgents
+  )?.preflightTrust
   if (!preflight) {
     return
   }

@@ -214,7 +214,8 @@ import {
   recognizeAgentProcessFromCommandLine
 } from '../../../../shared/agent-process-recognition'
 import type { SetupSplitDirection, TuiAgent } from '../../../../shared/types'
-import { isTuiAgent, TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
+import { isTuiAgent } from '../../../../shared/tui-agent-config'
+import { resolveTuiAgentConfig } from '../../../../shared/custom-tui-agents'
 import { createDraftPasteReadyScanner } from '../../../../shared/draft-paste-ready-scanner'
 import { sendAgentDraftPasteContent } from '@/lib/agent-draft-paste-content'
 import {
@@ -1113,7 +1114,15 @@ export function connectPanePty(
     ? (paneStartup.launchToken ?? createBrowserUuid())
     : undefined
   const startupDraftAgent = paneStartup?.launchAgent ?? paneStartup?.initialAgentStatus?.agent
-  const startupDraftAgentConfig = startupDraftAgent ? TUI_AGENT_CONFIG[startupDraftAgent] : null
+  // Why: a custom id inherits its base harness's draft-prefill behavior; resolve
+  // the base before reading the built-in-only config so a custom-based agent
+  // isn't misclassified as needing a paste (a raw index yields `any`/undefined).
+  const startupDraftSettings = useAppStore.getState().settings
+  const startupDraftAgentConfig = resolveTuiAgentConfig(
+    startupDraftAgent,
+    startupDraftSettings?.customTuiAgents,
+    startupDraftSettings?.deletedCustomTuiAgents
+  )
   const startupDraftPrompt =
     typeof paneStartup?.draftPrompt === 'string' && paneStartup.draftPrompt.trim()
       ? paneStartup.draftPrompt

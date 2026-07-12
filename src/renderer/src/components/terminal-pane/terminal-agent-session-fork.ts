@@ -9,6 +9,7 @@ import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { useAppStore } from '@/store'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
+import { resolveTuiAgentConfig } from '../../../../shared/custom-tui-agents'
 import { slugifyForWorkspaceName } from '../../../../shared/workspace-name'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import type { TuiAgent } from '../../../../shared/types'
@@ -111,7 +112,15 @@ async function preflightForkAgentTrust(args: {
   connectionId?: string | null
 }): Promise<void> {
   const { agent, workspacePath, connectionId } = args
-  const preflight = TUI_AGENT_CONFIG[agent].preflightTrust
+  // Why: resolve a custom id to its base harness's config before reading the
+  // built-in-only trust preset — a raw custom id would index an undefined entry
+  // and crash; a tombstoned/unknown id degrades to no preflight.
+  const { settings } = useAppStore.getState()
+  const preflight = resolveTuiAgentConfig(
+    agent,
+    settings?.customTuiAgents,
+    settings?.deletedCustomTuiAgents
+  )?.preflightTrust
   if (!preflight || !workspacePath || !window.api.agentTrust?.markTrusted) {
     return
   }

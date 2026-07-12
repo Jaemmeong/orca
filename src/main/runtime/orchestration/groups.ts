@@ -73,9 +73,9 @@ export function resolveGroupAddress(
       .map((t) => t.handle)
   }
 
-  // Why: agent-name groups (@claude, @droid, etc.) match by terminal title so
-  // the sender can address all instances of a particular agent type without
-  // knowing their handles.
+  // Why: agent-name groups (@claude, @droid, etc.) match by the terminal's
+  // validated base harness, not title text — a custom agent joins its base's
+  // group, and an unattributed terminal is omitted rather than guessed.
   const agentName = group.slice(1) // remove @
   if ((AGENT_NAME_GROUPS as readonly string[]).includes(agentName)) {
     return terminals
@@ -83,7 +83,7 @@ export function resolveGroupAddress(
         if (t.handle === senderHandle) {
           return false
         }
-        return titleMatchesAgentNameGroup(t.title ?? '', agentName)
+        return t.baseAgent !== undefined && BASE_AGENT_TO_GROUP[t.baseAgent] === agentName
       })
       .map((t) => t.handle)
   }

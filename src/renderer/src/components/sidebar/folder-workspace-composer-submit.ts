@@ -6,7 +6,8 @@ import {
   type WorktreeStartupPayload
 } from '@/lib/worktree-activation'
 import { isWorkItemLookupText } from '@/lib/work-item-lookup-text'
-import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
+import { useAppStore } from '@/store'
+import { resolveTuiAgentConfig } from '../../../../shared/custom-tui-agents'
 import type { AgentLaunchSpawnRequest } from '../../../../shared/agent-launch-spawn-request'
 import type { FolderWorkspace, ProjectGroup, TuiAgent } from '../../../../shared/types'
 import type { LaunchSource } from '../../../../shared/telemetry-events'
@@ -86,7 +87,16 @@ async function preflightFolderWorkspaceAgentTrust(args: {
   if (!args.agent || !window.api.agentTrust?.markTrusted) {
     return
   }
-  const preflight = TUI_AGENT_CONFIG[args.agent].preflightTrust
+  // Why: a custom id inherits its base harness's trust preset, so resolve the
+  // base before reading the built-in-only config — a raw custom id would index
+  // an undefined entry and crash (noImplicitAny hides it); a tombstoned/unknown
+  // id degrades to no preflight.
+  const { settings } = useAppStore.getState()
+  const preflight = resolveTuiAgentConfig(
+    args.agent,
+    settings?.customTuiAgents,
+    settings?.deletedCustomTuiAgents
+  )?.preflightTrust
   if (!preflight || !args.workspacePath) {
     return
   }

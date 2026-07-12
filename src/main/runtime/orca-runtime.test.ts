@@ -1742,6 +1742,50 @@ describe('OrcaRuntimeService', () => {
     expect(after.terminals[0].ptyId).toBe('pty-agent')
   })
 
+  it('populates terminal summary base attribution: launch attribution, hook fallback, else omitted (W2)', async () => {
+    const runtime = createRuntime()
+    const internals = runtime as unknown as {
+      recordPtyWorktree: (ptyId: string, worktreeId: string, state?: Record<string, unknown>) => void
+      ptysById: Map<string, { launchAgent: unknown; foregroundAgent: unknown }>
+    }
+    // Launch attribution (launchAgent); hook base metadata (foregroundAgent) with
+    // no launch attribution; and neither (must stay unattributed → omitted).
+    runtime.preAllocateHandleForPty('pty-codex')
+    runtime.preAllocateHandleForPty('pty-hook')
+    runtime.preAllocateHandleForPty('pty-bare')
+    internals.recordPtyWorktree('pty-codex', TEST_WORKTREE_ID, { connected: true })
+    internals.ptysById.get('pty-codex')!.launchAgent = 'codex'
+    internals.recordPtyWorktree('pty-hook', TEST_WORKTREE_ID, { connected: true })
+    internals.ptysById.get('pty-hook')!.foregroundAgent = 'claude'
+    internals.recordPtyWorktree('pty-bare', TEST_WORKTREE_ID, { connected: true })
+    runtime.attachWindow(TEST_WINDOW_ID)
+    runtime.syncWindowGraph(TEST_WINDOW_ID, {
+      tabs: [
+        { tabId: 'tab-codex', worktreeId: TEST_WORKTREE_ID, title: 'x', activeLeafId: 'l-codex', layout: null },
+        { tabId: 'tab-hook', worktreeId: TEST_WORKTREE_ID, title: 'x', activeLeafId: 'l-hook', layout: null },
+        { tabId: 'tab-bare', worktreeId: TEST_WORKTREE_ID, title: 'x', activeLeafId: 'l-bare', layout: null }
+      ],
+      leaves: [
+        { tabId: 'tab-codex', worktreeId: TEST_WORKTREE_ID, leafId: 'l-codex', paneRuntimeId: 1, ptyId: 'pty-codex' },
+        { tabId: 'tab-hook', worktreeId: TEST_WORKTREE_ID, leafId: 'l-hook', paneRuntimeId: 2, ptyId: 'pty-hook' },
+        { tabId: 'tab-bare', worktreeId: TEST_WORKTREE_ID, leafId: 'l-bare', paneRuntimeId: 3, ptyId: 'pty-bare' }
+      ]
+    })
+
+    const { terminals } = await runtime.listTerminals(`id:${TEST_WORKTREE_ID}`)
+    const codex = terminals.find((t) => t.ptyId === 'pty-codex')
+    const hook = terminals.find((t) => t.ptyId === 'pty-hook')
+    const bare = terminals.find((t) => t.ptyId === 'pty-bare')
+    // Launch attribution: requested + base both set.
+    expect(codex).toMatchObject({ requestedAgent: 'codex', baseAgent: 'codex' })
+    // Hook base metadata only: base set, no requested identity.
+    expect(hook?.baseAgent).toBe('claude')
+    expect(hook?.requestedAgent).toBeUndefined()
+    // Unattributed: neither field, so it is omitted from agent-name groups.
+    expect(bare?.baseAgent).toBeUndefined()
+    expect(bare?.requestedAgent).toBeUndefined()
+  })
+
   it('invalidates a re-keyed leaf-unique handle so in-flight waiters fail fast', async () => {
     const runtime = createRuntime()
     const tabId = 'tab-1'

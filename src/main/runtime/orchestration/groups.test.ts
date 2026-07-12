@@ -18,7 +18,9 @@ function makeSummary(
     connected: opts.connected ?? true,
     writable: opts.writable ?? true,
     lastOutputAt: opts.lastOutputAt ?? null,
-    preview: opts.preview ?? ''
+    preview: opts.preview ?? '',
+    ...(opts.requestedAgent !== undefined ? { requestedAgent: opts.requestedAgent } : {}),
+    ...(opts.baseAgent !== undefined ? { baseAgent: opts.baseAgent } : {})
   }
 }
 
@@ -95,77 +97,84 @@ describe('resolveGroupAddress', () => {
   })
 
   describe('agent name groups', () => {
-    it('matches @claude by terminal title', () => {
+    it('matches @claude by validated base attribution, not title', () => {
       const terminals = [
-        makeSummary('term_a', { title: 'Claude Code' }),
-        makeSummary('term_b', { title: 'Claude Code' }),
-        makeSummary('term_c', { title: 'Codex CLI' })
+        makeSummary('term_a', { baseAgent: 'claude' }),
+        makeSummary('term_b', { baseAgent: 'claude' }),
+        makeSummary('term_c', { baseAgent: 'codex' })
       ]
       const result = resolveGroupAddress('@claude', 'term_a', terminals, noStatus)
       expect(result).toEqual(['term_b'])
     })
 
-    it('matches @mimo by terminal title', () => {
+    it('maps the mimo-code base to the @mimo group', () => {
       const terminals = [
-        makeSummary('term_a', { title: 'mimo' }),
-        makeSummary('term_b', { title: 'MiMo Code session' }),
-        makeSummary('term_c', { title: 'OpenCode' })
+        makeSummary('term_a', { baseAgent: 'mimo-code' }),
+        makeSummary('term_b', { baseAgent: 'mimo-code' }),
+        makeSummary('term_c', { baseAgent: 'opencode' })
       ]
       const result = resolveGroupAddress('@mimo', 'term_a', terminals, noStatus)
       expect(result).toEqual(['term_b'])
     })
 
-    it('matches @openclaude by terminal title', () => {
+    it('a custom agent joins its base harness group', () => {
+      // The summary builder resolves a custom requestedAgent to its base; the
+      // custom terminal is addressable under the base group.
       const terminals = [
-        makeSummary('term_a', { title: 'OpenClaude' }),
-        makeSummary('term_b', { title: 'OpenClaude running' }),
-        makeSummary('term_c', { title: 'Claude Code' })
+        makeSummary('term_a', { baseAgent: 'claude' }),
+        makeSummary('term_b', {
+          requestedAgent: 'custom-agent:claude:01234567-89ab-4cde-8f01-23456789abcd',
+          baseAgent: 'claude'
+        })
       ]
-      const result = resolveGroupAddress('@openclaude', 'term_a', terminals, noStatus)
+      const result = resolveGroupAddress('@claude', 'term_a', terminals, noStatus)
       expect(result).toEqual(['term_b'])
     })
 
-    it('does not match OpenClaude titles through @claude', () => {
+    it('keeps openclaude and claude as distinct groups', () => {
       const terminals = [
-        makeSummary('term_a', { title: 'Claude Code' }),
-        makeSummary('term_b', { title: 'OpenClaude running' })
+        makeSummary('term_a', { baseAgent: 'claude' }),
+        makeSummary('term_b', { baseAgent: 'openclaude' })
+      ]
+      expect(resolveGroupAddress('@claude', 'term_a', terminals, noStatus)).toEqual([])
+      expect(resolveGroupAddress('@openclaude', 'term_a', terminals, noStatus)).toEqual(['term_b'])
+    })
+
+    it('omits an unattributed terminal rather than guessing from its title', () => {
+      // A title that reads like an agent name must NOT join the group without
+      // validated base attribution (U6 coordinator terminals rely on this).
+      const terminals = [
+        makeSummary('term_a', { baseAgent: 'claude' }),
+        makeSummary('term_b', { title: 'Claude Code' })
       ]
       const result = resolveGroupAddress('@claude', 'term_a', terminals, noStatus)
       expect(result).toEqual([])
     })
 
-    it('matches @codex by terminal title', () => {
+    it('matches @droid by base and excludes the sender', () => {
       const terminals = [
-        makeSummary('term_a', { title: 'Codex CLI' }),
-        makeSummary('term_b', { title: 'Codex CLI' })
-      ]
-      const result = resolveGroupAddress('@codex', 'term_a', terminals, noStatus)
-      expect(result).toEqual(['term_b'])
-    })
-
-    it('matches @droid by terminal title and excludes sender', () => {
-      const terminals = [
-        makeSummary('term_a', { title: 'Droid ready' }),
-        makeSummary('term_b', { title: 'Droid ready' }),
-        makeSummary('term_c', { title: 'Droid - action required' })
+        makeSummary('term_a', { baseAgent: 'droid' }),
+        makeSummary('term_b', { baseAgent: 'droid' }),
+        makeSummary('term_c', { baseAgent: 'droid' })
       ]
       const result = resolveGroupAddress('@droid', 'term_a', terminals, noStatus)
       expect(result).toEqual(['term_b', 'term_c'])
     })
 
-    it('does not match Android, path, or hyphenated tokens through @droid', () => {
+    it('does not map bases without an addressable group', () => {
+      // 'autohand' has no agent-name group; it is unreachable via base groups.
       const terminals = [
-        makeSummary('term_a', { title: 'Codex CLI' }),
-        makeSummary('term_b', { title: 'Android build' }),
-        makeSummary('term_c', { title: '/tmp/android' }),
-        makeSummary('term_d', { title: 'my-droid-worker' })
+        makeSummary('term_a', { baseAgent: 'claude' }),
+        makeSummary('term_b', { baseAgent: 'autohand' })
       ]
-      const result = resolveGroupAddress('@droid', 'term_a', terminals, noStatus)
-      expect(result).toEqual([])
+      expect(resolveGroupAddress('@claude', 'term_a', terminals, noStatus)).toEqual([])
     })
 
-    it('is case-insensitive for group address', () => {
-      const terminals = [makeSummary('term_a'), makeSummary('term_b', { title: 'Claude Code' })]
+    it('is case-insensitive for the group address', () => {
+      const terminals = [
+        makeSummary('term_a', { baseAgent: 'codex' }),
+        makeSummary('term_b', { baseAgent: 'claude' })
+      ]
       const result = resolveGroupAddress('@Claude', 'term_a', terminals, noStatus)
       expect(result).toEqual(['term_b'])
     })
