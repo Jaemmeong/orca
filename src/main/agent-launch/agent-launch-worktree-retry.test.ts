@@ -74,7 +74,7 @@ function harness(overrides: Partial<WorktreeRetryAgentLaunchDeps> = {}): Harness
 }
 
 const RETRY_SAME: WorktreeRetryAgentLaunchParams = {
-  worktreeId: WORKTREE,
+  scope: WORKTREE,
   expectedFailureId: FAILURE_ID,
   clientMutationId: '00000000-0000-4000-8000-000000000000',
   action: { kind: 'retry-same' }

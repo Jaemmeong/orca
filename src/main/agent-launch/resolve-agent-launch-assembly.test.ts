@@ -182,6 +182,37 @@ describe('custom args grammar', () => {
   })
 })
 
+describe('per-launch recipe args band (U7)', () => {
+  it('appends recipe args as a distinct band after the definition argv', () => {
+    const outcome = resolveCustom(
+      { commandOverride: '/bin/agent', args: '--def one' },
+      { perLaunchArgs: '--recipe two' }
+    )
+    expect(argvOf(outcome)).toEqual(['/bin/agent', '--def', 'one', '--recipe', 'two'])
+  })
+
+  it('tokenizes recipe args through the v1 grammar (quoted value is one element)', () => {
+    const outcome = resolveCustom({ commandOverride: '/bin/agent' }, { perLaunchArgs: '"a b" c' })
+    expect(argvOf(outcome)).toEqual(['/bin/agent', 'a b', 'c'])
+  })
+
+  it('interpolates a variable referenced only in recipe args and keeps spaces intact', () => {
+    const outcome = resolveCustom(
+      { commandOverride: '/bin/agent' },
+      { perLaunchArgs: '{worktreePath}', variables: { worktreePath: '/w s/t' } }
+    )
+    expect(argvOf(outcome)).toEqual(['/bin/agent', '/w s/t'])
+  })
+
+  it('requires a variable referenced only in recipe args', () => {
+    const outcome = resolveCustom(
+      { commandOverride: '/bin/agent' },
+      { perLaunchArgs: '{worktreePath}', variables: {} }
+    )
+    expect(failureOf(outcome)).toMatchObject({ code: 'missing_variable', variable: 'worktreePath' })
+  })
+})
+
 // The catalog pre-validates a live definition, so quoted-line-break/control args
 // never reach the resolver as a live agent — they become repair-required. Exercise
 // the resolver's defensive re-tokenization directly for persisted/remote data.
@@ -220,6 +251,43 @@ describe('assembleCommand defensive re-validation', () => {
       commandOverride: 'C:\\bin\\agent.exe',
       argsTemplate: '--x a%b',
       isCustomArgs: true
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.failure).toMatchObject({
+        code: 'invalid_agent_args',
+        reason: 'cmd_metachar',
+        shell: 'cmd'
+      })
+    }
+  })
+
+  it('rejects a quoted line break in recipe args with the same diagnostics as definition args', () => {
+    const result = assembleCommand({
+      ...base,
+      commandOverride: '/bin/agent',
+      argsTemplate: '--def',
+      isCustomArgs: true,
+      perLaunchArgs: '"a\nb"'
+    })
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(result.failure).toMatchObject({
+        code: 'invalid_agent_args',
+        field: 'args',
+        reason: 'quoted_line_break'
+      })
+    }
+  })
+
+  it('rejects a cmd-metachar recipe args token even when definition args are built-in', () => {
+    const result = assembleCommand({
+      ...base,
+      shell: 'cmd',
+      commandOverride: 'C:\\bin\\agent.exe',
+      argsTemplate: '--def',
+      isCustomArgs: false,
+      perLaunchArgs: '--x a%b'
     })
     expect(result.ok).toBe(false)
     if (!result.ok) {

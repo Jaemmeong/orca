@@ -4,21 +4,20 @@ import {
   resolveAutomationWorkspaceProvenance
 } from '../../../automations/workspace-provenance'
 import { WorktreeAgentLaunchPreCreateError } from '../../../agent-launch/agent-launch-worktree-resolution'
+import { shouldRejectLegacyCustomAgentLaunch } from '../../../agent-launch/legacy-launch-custom-agent-guard'
 import { defineMethod, type RpcMethod } from '../core'
+import { WORKTREE_AGENT_LAUNCH_RECOVERY_METHODS } from './worktree-agent-launch-recovery-methods'
 import {
   WorktreeCreate,
   WorktreeDetectedListParams,
   WorktreeActivate,
   WorktreeForceDeleteBranch,
   WorktreeListParams,
-  WorktreeForgetAgentLaunch,
-  WorktreePendingAgentLaunchSummary,
   WorktreePrefetchCreateBase,
   WorktreePsParams,
   WorktreeRemove,
   WorktreeResolveMrBase,
   WorktreeResolvePrBase,
-  WorktreeRetryAgentLaunch,
   WorktreeSelector,
   WorktreeSet,
   WorktreeSortOrder
@@ -75,6 +74,23 @@ export const WORKTREE_METHODS: RpcMethod[] = [
     name: 'worktree.create',
     params: WorktreeCreate,
     handler: async (params, { runtime, clientKind }) => {
+      // U7: a remote client (authenticated clientKind) may not name a custom id on
+      // the legacy built-in create path — it cannot be host-resolved without the
+      // host-atomic agentLaunch request. Reject at the boundary (no worktree),
+      // in-band as created:false so the composer keeps its typed recovery hints.
+      // In-process desktop/automation callers bypass this handler and keep customs.
+      if (
+        shouldRejectLegacyCustomAgentLaunch({
+          hasAgentLaunch: params.agentLaunch !== undefined,
+          requestClientKind: clientKind,
+          requestedAgentId: params.startupAgent ?? params.createdWithAgent
+        })
+      ) {
+        return {
+          created: false,
+          agentLaunchResult: { status: 'rejected', requestError: { code: 'untrusted_reference' } }
+        }
+      }
       const repo = await runtime.showRepo(params.repo)
       const automationProvenance = resolveAutomationWorkspaceProvenance({
         authority: runtime,
@@ -163,47 +179,7 @@ export const WORKTREE_METHODS: RpcMethod[] = [
       }
     }
   }),
-  defineMethod({
-    name: 'worktree.retryAgentLaunch',
-    params: WorktreeRetryAgentLaunch,
-    // clientKind scopes admission/the idempotency principal; never derived from
-    // client JSON. Authorization is authenticated worktree access, the same
-    // boundary as every other worktree mutation.
-    handler: async (params, { runtime, clientKind }) =>
-      runtime.retryWorktreeAgentLaunch(
-        params.worktree,
-        {
-          expectedFailureId: params.expectedFailureId,
-          clientMutationId: params.clientMutationId,
-          action: params.action
-        },
-        clientKind
-      )
-  }),
-  defineMethod({
-    name: 'worktree.forgetAgentLaunch',
-    params: WorktreeForgetAgentLaunch,
-    // clientKind scopes the idempotency principal; never derived from client JSON.
-    // Authorization is authenticated worktree access; expectedOperationId is an
-    // anti-race guard, not a capability secret.
-    handler: async (params, { runtime, clientKind }) =>
-      runtime.forgetUnknownWorktreeAgentLaunch(
-        params.worktree,
-        {
-          expectedOperationId: params.expectedOperationId,
-          clientMutationId: params.clientMutationId
-        },
-        clientKind
-      )
-  }),
-  defineMethod({
-    name: 'worktree.pendingAgentLaunchSummary',
-    params: WorktreePendingAgentLaunchSummary,
-    // clientKind scopes the admission principal (own rows only); never derived
-    // from client JSON. The redacted rows are secret-free and carry no token.
-    handler: async (_params, { runtime, clientKind }) =>
-      runtime.pendingAgentLaunchSummary(clientKind)
-  }),
+  ...WORKTREE_AGENT_LAUNCH_RECOVERY_METHODS,
   defineMethod({
     name: 'worktree.prefetchCreateBase',
     params: WorktreePrefetchCreateBase,

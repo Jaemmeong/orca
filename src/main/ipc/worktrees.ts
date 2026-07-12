@@ -977,6 +977,8 @@ export function registerWorktreeHandlers(
   ipcMain.removeHandler('worktrees:persistSortOrder')
   ipcMain.removeHandler('worktrees:retryAgentLaunch')
   ipcMain.removeHandler('worktrees:forgetAgentLaunch')
+  ipcMain.removeHandler('worktrees:retryBackgroundAgentLaunch')
+  ipcMain.removeHandler('worktrees:forgetBackgroundAgentLaunch')
   ipcMain.removeHandler('worktrees:pendingAgentLaunchSummary')
   ipcMain.removeHandler('hooks:check')
   ipcMain.removeHandler('hooks:inspectSetupScriptImports')
@@ -2178,6 +2180,50 @@ export function registerWorktreeHandlers(
       runtime.forgetUnknownWorktreeAgentLaunch(
         `id:${args.worktreeId}`,
         {
+          expectedOperationId: args.expectedOperationId,
+          clientMutationId: args.clientMutationId
+        },
+        undefined
+      )
+  )
+
+  // Local desktop equivalent of worktree.retryBackgroundAgentLaunch. Keyed by the
+  // host-minted attempt id; the runtime owns idempotency, the failure-id guard, and
+  // recovery-card gating. A local invoke is an authenticated local principal.
+  ipcMain.handle(
+    'worktrees:retryBackgroundAgentLaunch',
+    async (
+      _event,
+      args: {
+        attemptId: string
+        expectedFailureId: string
+        clientMutationId: string
+        action: RetryAgentLaunchAction
+      }
+    ): Promise<WorktreeRetryAgentLaunchResult> =>
+      runtime.retryBackgroundAgentLaunch(
+        {
+          attemptId: args.attemptId,
+          expectedFailureId: args.expectedFailureId,
+          clientMutationId: args.clientMutationId,
+          action: args.action
+        },
+        undefined
+      )
+  )
+
+  // Local desktop equivalent of worktree.forgetBackgroundAgentLaunch. Never kills or
+  // spawns; frees exactly one background-attempt reservation stranded in
+  // launch_state_unknown. expectedOperationId is an anti-race guard, not a secret.
+  ipcMain.handle(
+    'worktrees:forgetBackgroundAgentLaunch',
+    async (
+      _event,
+      args: { attemptId: string; expectedOperationId: string; clientMutationId: string }
+    ): Promise<ForgetUnknownAgentLaunchResult> =>
+      runtime.forgetBackgroundAgentLaunch(
+        {
+          attemptId: args.attemptId,
           expectedOperationId: args.expectedOperationId,
           clientMutationId: args.clientMutationId
         },

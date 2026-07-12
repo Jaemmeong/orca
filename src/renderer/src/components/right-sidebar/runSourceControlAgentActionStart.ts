@@ -75,7 +75,9 @@ export async function runSourceControlAgentActionStart({
       worktreeId,
       groupId: groupId ?? worktreeId,
       prompt: trimmedCommandInput,
-      agentArgs,
+      // Why: the host resolves this recipe's stored agentArgs from the owner
+      // locator; the client no longer sends assembled args on the launch path.
+      sourceRecord: { owner: 'source-control-recipe', id: actionId },
       promptDelivery,
       launchPlatform,
       launchSource

@@ -188,6 +188,24 @@ export type WorktreeSlice = {
     worktreeId: string
     expectedOperationId: string
   }) => Promise<ForgetUnknownAgentLaunchResult>
+  /** Retry a generic background attempt's settled failure. `worktreeId` selects
+   *  the runtime target (a background attempt may live on a remote worktree); the
+   *  wire request is keyed by `attemptId`. Mints a fresh clientMutationId per call
+   *  and returns the same tri-state result as the worktree retry. */
+  retryBackgroundAgentLaunch: (args: {
+    attemptId: string
+    worktreeId: string
+    expectedFailureId: string
+    action: RetryAgentLaunchAction
+  }) => Promise<WorktreeRetryAgentLaunchResult>
+  /** Forget a background attempt stranded in launch_state_unknown. Frees exactly
+   *  one reservation; never kills or spawns. `worktreeId` selects the runtime
+   *  target; the request is guarded by the attempt's pending operation id. */
+  forgetBackgroundAgentLaunch: (args: {
+    attemptId: string
+    worktreeId: string
+    expectedOperationId: string
+  }) => Promise<ForgetUnknownAgentLaunchResult>
   /** Fetch the host-redacted pending-launch summary for the capacity-recovery
    *  sheet. Pass the runtime target the capacity rejection came from; defaults to
    *  local. The host scopes rows to the authenticated principal and strips secrets. */

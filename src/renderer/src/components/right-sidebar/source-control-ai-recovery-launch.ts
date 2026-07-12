@@ -3,7 +3,6 @@ import type { AppState } from '@/store'
 import { focusTerminalTabSurface } from '@/lib/focus-terminal-tab-surface'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { getConnectionId } from '@/lib/connection-context'
-import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import {
   pickSourceControlLaunchAgent,
   readSourceControlLaunchRecipeAgentId
@@ -107,16 +106,6 @@ export async function launchSourceControlRecoveryAgentWithDefault({
 
   const store = getStoreState()
   const savedRecipe = getLaunchActionRecipe(actionId)
-  const agentArgsPlan = planAgentCliArgsSuffix(
-    savedRecipe.agentArgs,
-    activeSourceControlLaunchPlatform === 'win32' ? 'powershell' : 'posix'
-  )
-  if (!agentArgsPlan.ok) {
-    // Why: saved launch recipes are shared with direct launches; reject bad
-    // argv before remote agent detection or terminal creation has side effects.
-    toast.error(agentArgsPlan.error)
-    return false
-  }
   if (!basePrompt) {
     toast.error(copy.promptUnavailable)
     return false
@@ -160,7 +149,9 @@ export async function launchSourceControlRecoveryAgentWithDefault({
     worktreeId: activeWorktreeId,
     groupId: activeGroupId ?? activeWorktreeId,
     prompt,
-    agentArgs: savedRecipe.agentArgs,
+    // Why: the host resolves this recipe's stored agentArgs from the owner
+    // locator and validates them; the client no longer sends assembled args.
+    sourceRecord: { owner: 'source-control-recipe', id: actionId },
     promptDelivery: 'submit-after-ready',
     launchPlatform: activeSourceControlLaunchPlatform,
     launchSource: 'source_control_recovery'

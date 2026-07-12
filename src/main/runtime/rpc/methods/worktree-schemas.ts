@@ -276,11 +276,9 @@ export const WorktreeResolveMrBase = z.object({
 // client metadata, never an authorization secret.
 export const WorktreeRetryAgentLaunch = WorktreeSelector.extend({
   expectedFailureId: z.string().min(1).max(256),
-  clientMutationId: z
-    .string()
-    .refine(isCanonicalLowercaseUuid, {
-      message: 'clientMutationId must be a canonical lowercase UUID'
-    }),
+  clientMutationId: z.string().refine(isCanonicalLowercaseUuid, {
+    message: 'clientMutationId must be a canonical lowercase UUID'
+  }),
   action: z.union([
     z.object({ kind: z.literal('retry-same') }),
     z.object({
@@ -294,11 +292,35 @@ export const WorktreeForgetAgentLaunch = WorktreeSelector.extend({
   // expectedOperationId is an anti-race guard from client-visible worktree
   // metadata, never authorization.
   expectedOperationId: z.string().min(1).max(256),
-  clientMutationId: z
-    .string()
-    .refine(isCanonicalLowercaseUuid, {
-      message: 'clientMutationId must be a canonical lowercase UUID'
+  clientMutationId: z.string().refine(isCanonicalLowercaseUuid, {
+    message: 'clientMutationId must be a canonical lowercase UUID'
+  })
+})
+
+// Generic background attempt Forget/Retry (U6). Keyed by the host-minted attempt
+// id (not a worktree selector — a worktree may host several background attempts),
+// which is client-visible attempt metadata and an anti-race guard, never a secret.
+export const WorktreeRetryBackgroundAgentLaunch = z.object({
+  attemptId: z.string().min(1).max(256),
+  expectedFailureId: z.string().min(1).max(256),
+  clientMutationId: z.string().refine(isCanonicalLowercaseUuid, {
+    message: 'clientMutationId must be a canonical lowercase UUID'
+  }),
+  action: z.union([
+    z.object({ kind: z.literal('retry-same') }),
+    z.object({
+      kind: z.literal('change-agent'),
+      agent: z.custom<TuiAgent>(isTuiAgent, { message: 'Unknown agent' })
     })
+  ])
+})
+
+export const WorktreeForgetBackgroundAgentLaunch = z.object({
+  attemptId: z.string().min(1).max(256),
+  expectedOperationId: z.string().min(1).max(256),
+  clientMutationId: z.string().refine(isCanonicalLowercaseUuid, {
+    message: 'clientMutationId must be a canonical lowercase UUID'
+  })
 })
 
 // The capacity-recovery summary takes no params: the principal is scoped from the

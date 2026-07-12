@@ -1260,6 +1260,22 @@ describe('orchestration RPC methods', () => {
         call('orchestration.dispatchShow', { task: 'task_fake', preamble: true })
       ).rejects.toThrow('Task not found')
     })
+
+    it('projects a forgotten dispatch to failed for readers lacking the disposition (G6)', async () => {
+      setup()
+      const task = db.createTask({ spec: 'work' })
+      const ctx = db.createDispatchContext(task.id, 'term_a')
+      db.forgetDispatch(ctx.id)
+      // The DB row is genuinely forgotten...
+      expect(db.getDispatchContextById(ctx.id)?.status).toBe('forgotten')
+
+      const result = (await call('orchestration.dispatchShow', {
+        task: task.id
+      })) as { dispatch: { status: string } | null }
+
+      // ...but the read surface coalesces it to legacy `failed`.
+      expect(result.dispatch?.status).toBe('failed')
+    })
   })
 
   describe('orchestration.gateCreate', () => {

@@ -64,6 +64,10 @@ import type {
   WorktreeRetryAgentLaunchResult,
   ForgetUnknownAgentLaunchResult
 } from '../shared/agent-launch-worktree-recovery'
+import type {
+  RetryBackgroundAgentLaunchRequest,
+  ForgetBackgroundAgentLaunchRequest
+} from '../shared/background-agent-launch'
 import type { PendingAgentLaunchSummary } from '../shared/agent-launch-pending-summary'
 import type {
   AgentCatalogMutationRequest,
@@ -1299,6 +1303,16 @@ export type PreloadApi = {
       expectedOperationId: string
       clientMutationId: string
     }) => Promise<ForgetUnknownAgentLaunchResult>
+    /** Retry a generic background attempt's settled failure. The host owns
+     *  idempotency, the failure-id guard, and recovery-card gating. */
+    retryBackgroundAgentLaunch: (
+      args: RetryBackgroundAgentLaunchRequest
+    ) => Promise<WorktreeRetryAgentLaunchResult>
+    /** Forget a background attempt stranded in launch_state_unknown. Frees exactly
+     *  one reservation; never kills or spawns. */
+    forgetBackgroundAgentLaunch: (
+      args: ForgetBackgroundAgentLaunchRequest
+    ) => Promise<ForgetUnknownAgentLaunchResult>
     /** Redacted pending-launch rows for the capacity-recovery sheet, scoped by the
      *  host to the authenticated principal. Never carries a prompt, custom id/label,
      *  argv, path, token, or env. */

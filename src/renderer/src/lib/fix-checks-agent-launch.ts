@@ -6,7 +6,6 @@ import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'
 import { launchWorkItemDirect } from '@/lib/launch-work-item-direct'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
-import { planAgentCliArgsSuffix } from '@/lib/tui-agent-startup'
 import {
   pickSourceControlLaunchAgent,
   readSourceControlLaunchRecipeAgentId
@@ -180,14 +179,6 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
       )
       return false
     }
-    const agentArgsPlan = planAgentCliArgsSuffix(
-      recipe.agentArgs,
-      launchPlatform === 'win32' ? 'powershell' : 'posix'
-    )
-    if (!agentArgsPlan.ok) {
-      toast.error(agentArgsPlan.error)
-      return false
-    }
     if (!activateAndRevealWorktree(targetWorktreeId)) {
       toast.error(
         translate(
@@ -202,7 +193,9 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
       worktreeId: targetWorktreeId,
       groupId: args.groupId ?? targetWorktreeId,
       prompt: commandInput,
-      agentArgs: recipe.agentArgs,
+      // Why: the host resolves the fixChecks recipe's stored agentArgs from the
+      // owner locator; the client no longer sends assembled args on this path.
+      sourceRecord: { owner: 'source-control-recipe', id: 'fixChecks' },
       promptDelivery: 'submit-after-ready',
       launchPlatform,
       launchSource: args.launchSource
@@ -243,7 +236,8 @@ export async function startFixChecksAgent(args: StartFixChecksAgentArgs): Promis
     launchSource: args.launchSource,
     telemetrySource: args.telemetrySource,
     promptDelivery: 'submit-after-ready',
-    agentArgs: recipe.agentArgs,
+    // The host resolves the fixChecks recipe's stored agentArgs from this locator.
+    sourceControlActionId: 'fixChecks',
     ...(agentOverride.kind === 'agent' ? { agentOverride: agentOverride.agent } : {}),
     openModalFallback: args.openModalFallback
   })

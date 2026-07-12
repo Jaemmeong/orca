@@ -5,7 +5,27 @@
 import { describe, expect, it } from 'vitest'
 import type { PersistedAgentLaunchFailure } from '../../shared/agent-launch-contract'
 import type { AutomationDispatchResult } from '../../shared/automations-types'
-import { stampAutomationDispatchLaunchFailure } from './automation-launch-failure-stamp'
+import { parsePersistedAgentLaunchFailure } from '../../shared/agent-launch-failure-schema'
+import {
+  mintPersistedAutomationLaunchFailure,
+  stampAutomationDispatchLaunchFailure
+} from './automation-launch-failure-stamp'
+
+// The only keys a persisted launch failure may carry. Any command/argv/env
+// key-or-value, label, or path text would show up as a key outside this set.
+const ALLOWED_FAILURE_KEYS = new Set([
+  'code',
+  'requestedAgent',
+  'baseAgent',
+  'variable',
+  'field',
+  'shell',
+  'reason',
+  'version',
+  'failureId',
+  'intent',
+  'occurredAt'
+])
 
 describe('stampAutomationDispatchLaunchFailure (ledger #12)', () => {
   it('mints the persisted wrapper for a plain failure from the dispatch arm', () => {
@@ -74,5 +94,45 @@ describe('stampAutomationDispatchLaunchFailure (ledger #12)', () => {
 
     expect('agentLaunchFailure' in stamped).toBe(true)
     expect(stamped.agentLaunchFailure).toBeNull()
+  })
+})
+
+// G6 secret-leak oracle for the automation owner record: the persisted wrapper
+// round-trips through JSON with no command/argv/env/label/path text, normalizes
+// back through the strict schema, and a request error or a secret-bearing blob
+// fails normalization rather than persisting.
+describe('automation launch-failure round trip (G6)', () => {
+  it('round-trips a minted failure with only whitelisted keys and no secret text', () => {
+    const minted = mintPersistedAutomationLaunchFailure({
+      code: 'invalid_agent_env',
+      requestedAgent: 'custom-agent:codex:11111111-1111-4111-8111-111111111111',
+      baseAgent: 'codex',
+      field: 'env'
+    })
+    const roundTripped = JSON.parse(JSON.stringify(minted))
+    // Exactly the whitelist — no argv/env/command/label/path key survives.
+    for (const key of Object.keys(roundTripped)) {
+      expect(ALLOWED_FAILURE_KEYS.has(key)).toBe(true)
+    }
+    // Normalization holds on the way back in.
+    expect(parsePersistedAgentLaunchFailure(roundTripped)).toEqual(minted)
+  })
+
+  it('rejects a stored blob carrying secret env/argv text on read', () => {
+    const minted = mintPersistedAutomationLaunchFailure({ code: 'spawn_failed' })
+    expect(parsePersistedAgentLaunchFailure({ ...minted, agentEnv: { TOKEN: 'x' } })).toBeNull()
+    expect(parsePersistedAgentLaunchFailure({ ...minted, argv: ['--secret'] })).toBeNull()
+  })
+
+  it('a request error cannot parse as the persisted automation failure', () => {
+    expect(
+      parsePersistedAgentLaunchFailure({
+        code: 'idempotency_conflict',
+        version: 1,
+        failureId: 'x',
+        intent: 'automation',
+        occurredAt: 1
+      })
+    ).toBeNull()
   })
 })

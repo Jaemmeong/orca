@@ -9,7 +9,7 @@
 // surface: only the host-resolved plan spawns. Electron-free and injection-based
 // so it is unit-testable.
 
-import type { BuiltInTuiAgent, GlobalSettings } from '../../shared/types'
+import type { BuiltInTuiAgent, GlobalSettings, Repo } from '../../shared/types'
 import type { AgentLaunchReceipt } from '../../shared/agent-launch-contract'
 import type {
   AgentLaunchInput,
@@ -95,6 +95,10 @@ export type TerminalAgentLaunchArgs = {
   scope: string
   worktreePath: string | null
   repoPath: string | null
+  /** Host-trusted repo overrides for a source-control-recipe sourceRecord lookup
+   *  (U7). Derived from the launch's target workspace by the runtime caller, never
+   *  client-supplied; absent falls back to the global recipe. */
+  recipeRepo?: Pick<Repo, 'sourceControlAi'> | null
   principal: AdmissionPrincipal
 }
 
@@ -187,6 +191,7 @@ export async function resolveTerminalAgentLaunch(
       variables: hostState.variables,
       scope: args.scope,
       principal: args.principal,
+      ...(args.recipeRepo !== undefined ? { recipeRepo: args.recipeRepo } : {}),
       ...(spawnInput.input.persistedSnapshot
         ? { persistedSnapshot: spawnInput.input.persistedSnapshot }
         : {}),

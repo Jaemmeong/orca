@@ -38,6 +38,12 @@ export const AI_VAULT_RUNTIME_CAPABILITY = 'aiVault.v1' as const
 // offscreen backend). Advertised only when that backend is actually available, so
 // clients never fall back to a local desktop browser tab for a remote-owned page.
 export const BROWSER_HEADLESS_RUNTIME_CAPABILITY = 'browser.headless.v1' as const
+// Why: signals the host resolves the v1 identity-only `agentLaunch` request
+// (selection + intent + prompt only; the host owns command/env/host-identity
+// resolution). Mobile/paired-web clients negotiate on this before sending an
+// identity-only launch; without it they keep assembling the legacy startupCommand
+// for one release. Static — advertised for every build once this ships.
+export const AGENT_LAUNCH_IDENTITY_RUNTIME_CAPABILITY = 'agent-launch.identity.v1' as const
 
 export const RUNTIME_CAPABILITIES = [
   'runtime.status.compat.v1',
@@ -53,7 +59,8 @@ export const RUNTIME_CAPABILITIES = [
   WORKSPACE_RUN_CONTEXT_RUNTIME_CAPABILITY,
   FOLDER_WORKSPACE_PATH_STATUS_RUNTIME_CAPABILITY,
   LINEAR_ISSUE_ATTRIBUTE_FILTER_RUNTIME_CAPABILITY,
-  AI_VAULT_RUNTIME_CAPABILITY
+  AI_VAULT_RUNTIME_CAPABILITY,
+  AGENT_LAUNCH_IDENTITY_RUNTIME_CAPABILITY
 ] as const
 
 export type RuntimeCapability = (typeof RUNTIME_CAPABILITIES)[number] | (string & {})

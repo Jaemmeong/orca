@@ -1374,6 +1374,9 @@ describe('OrcaRuntimeService', () => {
     expect(status.capabilities).toContain('mobile.tasks.v1')
     expect(status.capabilities).toContain('project-host-setup.v1')
     expect(status.capabilities).toContain('linear.issue-attribute-filter.v1')
+    // Static negotiation token for identity-only agent launch: mobile/paired-web
+    // gate their v1 launches on this before dropping legacy command assembly.
+    expect(status.capabilities).toContain('agent-launch.identity.v1')
     expect(status.capabilities).not.toContain('browser.screencast.v1')
     expect(typeof status.protocolVersion).toBe('number')
     expect(typeof status.minCompatibleMobileVersion).toBe('number')

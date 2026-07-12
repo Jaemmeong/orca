@@ -227,6 +227,7 @@ export function resolveAgentLaunch(
     prefixOverride: context.prefixOverride,
     argsTemplate: context.argsTemplate,
     isCustomArgs: context.isCustomArgs,
+    ...(request.perLaunchArgs !== undefined ? { perLaunchArgs: request.perLaunchArgs } : {}),
     envValues: Object.keys(context.env).map((key) => context.env[key]),
     values
   })

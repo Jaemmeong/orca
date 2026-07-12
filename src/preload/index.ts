@@ -716,6 +716,12 @@ const api = {
 
     forgetAgentLaunch: (args) => ipcRenderer.invoke('worktrees:forgetAgentLaunch', args),
 
+    retryBackgroundAgentLaunch: (args) =>
+      ipcRenderer.invoke('worktrees:retryBackgroundAgentLaunch', args),
+
+    forgetBackgroundAgentLaunch: (args) =>
+      ipcRenderer.invoke('worktrees:forgetBackgroundAgentLaunch', args),
+
     pendingAgentLaunchSummary: () => ipcRenderer.invoke('worktrees:pendingAgentLaunchSummary'),
 
     onChanged: (

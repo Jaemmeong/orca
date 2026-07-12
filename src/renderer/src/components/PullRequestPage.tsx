@@ -4510,8 +4510,7 @@ function ChecksTab({
   const handleStartFixChecksFromDialog = useCallback(
     async ({
       agent,
-      commandInput,
-      agentArgs
+      commandInput
     }: {
       agent: Parameters<typeof launchWorkItemDirect>[0]['agentOverride']
       commandInput: string
@@ -4527,7 +4526,8 @@ function ChecksTab({
         telemetrySource: 'sidebar',
         promptDelivery: 'submit-after-ready',
         agentOverride: agent,
-        agentArgs,
+        // The host resolves the fixChecks recipe's stored agentArgs from this locator.
+        sourceControlActionId: 'fixChecks',
         openModalFallback: () => {
           toast.error(
             translate(

@@ -2,25 +2,12 @@ import { useCallback, useState } from 'react'
 import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
 import { AgentLaunchRecoveryCard } from './AgentLaunchRecoveryCard'
+import {
+  AGENTS_SETTINGS_ACTIONS,
+  RETRY_SAME_ACTIONS
+} from '@/lib/agent-launch-recovery-action-dispatch'
 import type { AgentLaunchRecoveryActionId } from '@/lib/agent-launch-recovery-card'
 import type { AgentLaunchRecoveryLiveness } from '@/lib/agent-launch-recovery-card'
-
-/** Retry-family actions all resolve to a `retry-same` launch against the pinned
- *  identity; the distinct labels (`agent_configuration_changed`,
- *  `invalid_launch_snapshot`) are copy-only adoptions, not different requests. */
-const RETRY_SAME_ACTIONS: ReadonlySet<AgentLaunchRecoveryActionId> = new Set([
-  'retry',
-  'retry-current-settings',
-  'launch-current-settings'
-])
-
-/** Actions whose recovery entry is the desktop-host agents settings pane. */
-const AGENTS_SETTINGS_ACTIONS: ReadonlySet<AgentLaunchRecoveryActionId> = new Set([
-  'choose-agent',
-  'edit-agent-settings',
-  'repair-on-host',
-  'manage-agents'
-])
 
 /** Connected recovery card for a post-create agent-launch failure. Reads the
  *  durable failure from the workspace's WorktreeMeta mirror and renders nothing

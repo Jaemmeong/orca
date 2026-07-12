@@ -179,6 +179,67 @@ describe('resolveTerminalAgentLaunch', () => {
   })
 })
 
+describe('resolveTerminalAgentLaunch recipe-arg threading (U7)', () => {
+  it('threads a source-control recipe override from recipeRepo into perLaunchArgs', async () => {
+    let captured: ResolveAgentLaunchRequest | null = null
+    const resolve = (request: ResolveAgentLaunchRequest): ResolveAgentLaunchOutcome => {
+      captured = request
+      return { ok: true as const, launch: makeLaunch() }
+    }
+    const deps = makeDeps(resolve)
+    await resolveTerminalAgentLaunch(deps, {
+      ...makeArgs(),
+      request: {
+        selection: { kind: 'agent' as const, agent: 'claude' as const },
+        prompt: 'go',
+        sourceRecord: { owner: 'source-control-recipe' as const, id: 'fixChecks' }
+      },
+      // Host-trusted repo override — the caller derives it from the workspace.
+      recipeRepo: {
+        sourceControlAi: { actionOverrides: { fixChecks: { agentArgs: '--recipe one' } } }
+      }
+    })
+    expect(captured!.perLaunchArgs).toBe('--recipe one')
+  })
+
+  it('rejects an unknown recipe id with untrusted_reference and never resolves', async () => {
+    const resolve = vi.fn(() => ({ ok: true as const, launch: makeLaunch() }))
+    const deps = makeDeps(resolve)
+    const result = await resolveTerminalAgentLaunch(deps, {
+      ...makeArgs(),
+      request: {
+        selection: { kind: 'agent' as const, agent: 'claude' as const },
+        prompt: 'go',
+        sourceRecord: { owner: 'source-control-recipe' as const, id: 'not-a-real-action' }
+      },
+      recipeRepo: { sourceControlAi: {} }
+    })
+    expect(result).toEqual({
+      kind: 'failed',
+      outcome: { status: 'rejected', requestError: { code: 'untrusted_reference' } }
+    })
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
+  it('leaves perLaunchArgs unset when recipeRepo is absent and the record is non-recipe', async () => {
+    let captured: ResolveAgentLaunchRequest | null = null
+    const resolve = (request: ResolveAgentLaunchRequest): ResolveAgentLaunchOutcome => {
+      captured = request
+      return { ok: true as const, launch: makeLaunch() }
+    }
+    const deps = makeDeps(resolve)
+    await resolveTerminalAgentLaunch(deps, {
+      ...makeArgs(),
+      request: {
+        selection: { kind: 'agent' as const, agent: 'claude' as const },
+        prompt: 'go',
+        sourceRecord: { owner: 'quick-command' as const, id: 'qc-1' }
+      }
+    })
+    expect('perLaunchArgs' in captured!).toBe(false)
+  })
+})
+
 describe('resolveTerminalAgentLaunch resume/fork', () => {
   const KEY = { worktreeId: 'wt-1', baseAgent: 'claude' as const, providerSessionId: 'sess-1' }
 

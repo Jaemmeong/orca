@@ -204,6 +204,7 @@ import {
   SOURCE_CONTROL_TEXT_ACTION_IDS
 } from '../shared/source-control-ai-actions'
 import { normalizeDisabledTuiAgents } from '../shared/tui-agent-selection'
+import { isTuiAgent } from '../shared/tui-agent-config'
 import {
   DEFAULT_TUI_AGENT_ARGS,
   DEFAULT_TUI_AGENT_ENV,
@@ -4673,6 +4674,11 @@ export class Store {
       ...updates,
       name:
         updates.name !== undefined ? updates.name.trim() || 'Untitled automation' : current.name,
+      // A legacy client that can't represent a custom agent id may send agentId
+      // null/undefined/malformed; the `...updates` spread would silently clobber a
+      // stored custom id and drop its tombstone reference. Only a well-formed id
+      // (built-in or custom syntax) applies; anything else preserves the stored id.
+      agentId: isTuiAgent(updates.agentId) ? updates.agentId : current.agentId,
       precheck: Object.hasOwn(updates, 'precheck')
         ? normalizeAutomationPrecheck(updates.precheck)
         : normalizeAutomationPrecheck(current.precheck),

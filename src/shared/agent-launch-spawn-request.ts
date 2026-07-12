@@ -36,6 +36,15 @@ export type AgentLaunchSourceRecord = {
   id?: string
 }
 
+/** Ids-free client declaration that a spawn is an UNATTENDED background launch
+ *  with no automation run / orchestration dispatch to own its failure (§U6,
+ *  ledger #8/#13). The client NEVER sends a LaunchIntent or attemptId: it only
+ *  declares the kind, and the HOST mints the attemptId, creates the generic
+ *  background attempt before resolution, and constructs the
+ *  LaunchIntent {kind:'background', attemptId, worktreeId} itself. A misdeclaration
+ *  only shifts admission cap buckets; the host may reclassify. */
+export type AgentLaunchUnattendedDeclaration = { kind: 'background' }
+
 export type AgentLaunchSpawnRequest = {
   selection: AgentLaunchSelectionRequest
   /** Current interactive draft; the host applies its per-surface maximum. */
@@ -46,6 +55,9 @@ export type AgentLaunchSpawnRequest = {
    *  or host-returned draftPrompt for post-ready paste); default 'submit'. */
   promptDelivery?: 'submit' | 'draft'
   sourceRecord?: AgentLaunchSourceRecord
+  /** Present only for an unattended background launch; the host mints the attempt
+   *  identity from its authenticated context. Absent = an interactive launch. */
+  unattended?: AgentLaunchUnattendedDeclaration
 }
 
 /** Provider-session resume/fork variant, distinct from AgentLaunchSpawnRequest.
@@ -112,6 +124,6 @@ export type AgentLaunchInput =
  *  created and — for RPC surfaces — is a successful response, not an error
  *  envelope, mirroring worktree.create so old-client semantics stay intact. */
 export type AgentLaunchSpawnOutcome =
-  | { status: 'launched'; receipt: AgentLaunchReceipt }
-  | { status: 'failed'; failure: AgentLaunchFailure }
+  | { status: 'launched'; receipt: AgentLaunchReceipt; backgroundAttemptId?: string }
+  | { status: 'failed'; failure: AgentLaunchFailure; backgroundAttemptId?: string }
   | { status: 'rejected'; requestError: AgentLaunchRequestError }

@@ -94,4 +94,12 @@ describe('backgroundAgentLaunchAttemptSchema', () => {
     const bad = { ...attempt(), failure: { ...unknownFailure, agentEnv: { S: '1' } } }
     expect(parseBackgroundAgentLaunchAttempt(bad)).toBeNull()
   })
+
+  it('rejects an embedded control-plane request error masquerading as the failure', () => {
+    const bad = {
+      ...attempt(),
+      failure: { ...unknownFailure, code: 'idempotency_conflict' }
+    }
+    expect(parseBackgroundAgentLaunchAttempt(bad)).toBeNull()
+  })
 })

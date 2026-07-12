@@ -1504,6 +1504,24 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
         expectedOperationId,
         clientMutationId
       }),
+    retryBackgroundAgentLaunch: async ({
+      attemptId,
+      expectedFailureId,
+      clientMutationId,
+      action
+    }) =>
+      callRuntimeResult<WorktreeRetryAgentLaunchResult>('worktree.retryBackgroundAgentLaunch', {
+        attemptId,
+        expectedFailureId,
+        clientMutationId,
+        action
+      }),
+    forgetBackgroundAgentLaunch: async ({ attemptId, expectedOperationId, clientMutationId }) =>
+      callRuntimeResult<ForgetUnknownAgentLaunchResult>('worktree.forgetBackgroundAgentLaunch', {
+        attemptId,
+        expectedOperationId,
+        clientMutationId
+      }),
     pendingAgentLaunchSummary: async () =>
       callRuntimeResult<PendingAgentLaunchSummary>('worktree.pendingAgentLaunchSummary', {}),
     onChanged: () => noopUnsubscribe,

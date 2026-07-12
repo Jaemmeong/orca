@@ -22,6 +22,7 @@ import type { AgentLaunchNoticeCode } from '../../shared/agent-launch-contract'
 import { AGENT_LAUNCH_NOTICE_CODES } from '../../shared/agent-launch-notice-schema'
 import type { Store } from '../persistence'
 import type { GlobalSettings, TuiAgent } from '../../shared/types'
+import { getRepoIdFromWorktreeId } from '../../shared/worktree-id'
 import { terminalOutputBacklogCapChars } from '../../shared/terminal-scrollback-policy'
 import type {
   PtyDeliveryWriteOff,
@@ -61,6 +62,15 @@ import { resolveStartupShell } from '../../shared/tui-agent-startup-shell'
 import { getHostAgentSessionRecordStore } from '../agent-launch/agent-session-record-store-host'
 import { registerHostSessionLaunch } from '../agent-launch/agent-session-launch-registration'
 import { getHostAgentLaunchBoundary } from '../agent-launch/agent-launch-boundary-host'
+import { getHostBackgroundAgentLaunchStore } from '../agent-launch/background-agent-launch-store-host'
+import { mintAgentLaunchOperationId } from '../agent-launch/agent-launch-operation-store'
+import {
+  beginBackgroundDeclarationLaunch,
+  settleBackgroundDeclarationResolution,
+  settleBackgroundDeclarationSpawn,
+  type BackgroundDeclarationDeps,
+  type BackgroundDeclarationLaunch
+} from '../agent-launch/background-agent-launch-spawn-declaration'
 import type { ProjectExecutionRuntimeResolution } from '../../shared/project-execution-runtime'
 import {
   isWslShellName,
@@ -3720,12 +3730,37 @@ export function registerPtyHandlers(
       let agentLaunchDraftPrompt: string | null = null
       let agentLaunchToken: string | null = null
       let agentLaunchSettled = false
+      // Host-minted generic background attempt for an unattended declaration
+      // (ledger #8/#13). Non-null only when the request declares
+      // `unattended:{kind:'background'}`; the spawn/registration seam then settles
+      // the still-pending attempt as launched/failed alongside the boundary token.
+      let backgroundDeclaration: BackgroundDeclarationLaunch | null = null
+      let backgroundDeclarationRequestedAgent: TuiAgent | null = null
+      const backgroundDeclarationDeps: BackgroundDeclarationDeps = {
+        createAttempt: (input) => getHostBackgroundAgentLaunchStore().create(input),
+        settleLaunched: (attemptId) =>
+          getHostBackgroundAgentLaunchStore().settleLaunched(attemptId),
+        settleFailed: (attemptId, failure) =>
+          getHostBackgroundAgentLaunchStore().settleFailed(attemptId, failure),
+        rollback: (attemptId) => getHostBackgroundAgentLaunchStore().delete(attemptId),
+        mintAttemptId: () => randomUUID(),
+        mintOperationId: () => mintAgentLaunchOperationId(),
+        mintFailureId: () => randomUUID()
+      }
       const settleAgentLaunch = (settlement: 'registered' | 'failed'): void => {
         if (agentLaunchToken === null || agentLaunchSettled) {
           return
         }
         agentLaunchSettled = true
         getHostAgentLaunchBoundary().settleAgentLaunch(agentLaunchToken, settlement)
+        if (backgroundDeclaration && backgroundDeclarationRequestedAgent) {
+          settleBackgroundDeclarationSpawn(
+            backgroundDeclarationDeps,
+            backgroundDeclaration,
+            settlement,
+            backgroundDeclarationRequestedAgent
+          )
+        }
       }
       if (args.agentLaunch && getSettings) {
         const getLaunchSettings = getSettings
@@ -3840,8 +3875,34 @@ export function registerPtyHandlers(
           args.launchAgent = session.agent
         } else {
           resumeRequest = args.agentLaunch
+          // Ids-free background declaration: the host mints the attempt identity,
+          // creates the generic attempt BEFORE resolution, and drives its own
+          // background intent (ledger #8/#13). Only a named-agent selection carries
+          // a requested identity to key the attempt on; a `default` background
+          // launch has no real sender in U6 and stays a plain interactive intent.
+          if (
+            args.agentLaunch.unattended?.kind === 'background' &&
+            args.agentLaunch.selection.kind === 'agent' &&
+            typeof args.worktreeId === 'string' &&
+            args.worktreeId.length > 0
+          ) {
+            backgroundDeclarationRequestedAgent = args.agentLaunch.selection.agent
+            backgroundDeclaration = beginBackgroundDeclarationLaunch(backgroundDeclarationDeps, {
+              worktreeId: args.worktreeId,
+              requestedAgent: args.agentLaunch.selection.agent
+            })
+            resumeIntent = backgroundDeclaration.intent
+          }
         }
         if (resumeRequest) {
+          // Host-trusted repo overrides for a source-control-recipe sourceRecord
+          // (U7): derived from this spawn's own worktree via the store, never
+          // client-supplied; absent (no worktree/store) falls back to the global
+          // recipe. Harmless for non-recipe launches — the resolver short-circuits.
+          const recipeRepo =
+            store && typeof args.worktreeId === 'string' && args.worktreeId.length > 0
+              ? (store.getRepo(getRepoIdFromWorktreeId(args.worktreeId)) ?? null)
+              : null
           const resolution = await resolveAgentLaunchSpawn(
             {
               getSettings: hostState.getSettings,
@@ -3853,22 +3914,52 @@ export function registerPtyHandlers(
               intent: resumeIntent,
               target: hostState.target,
               variables: hostState.variables,
+              recipeRepo,
+              // A background attempt scopes its op-store/idempotency joins by the
+              // minted attempt id, never the worktree (a worktree may host several).
               scope:
-                typeof args.worktreeId === 'string' && args.worktreeId.length > 0
+                backgroundDeclaration?.scope ??
+                (typeof args.worktreeId === 'string' && args.worktreeId.length > 0
                   ? args.worktreeId
-                  : 'local-pty-spawn',
+                  : 'local-pty-spawn'),
               principal: { kind: 'local' },
               ...(resumePersistedSnapshot ? { persistedSnapshot: resumePersistedSnapshot } : {}),
               ...(resumeProviderSession ? { resumeProviderSession } : {})
             }
           )
           if (!resolution.ok) {
+            // Settle the pre-created attempt: rollback for a request error or a
+            // pre-attempt capacity rejection (no attempt survives), else a durable
+            // `failed` attempt whose id is echoed back so the recovery card renders.
+            const settled = backgroundDeclaration
+              ? settleBackgroundDeclarationResolution(
+                  backgroundDeclarationDeps,
+                  backgroundDeclaration.attemptId,
+                  resolution
+                )
+              : null
+            const backgroundAttemptId =
+              settled?.attemptRetained && backgroundDeclaration
+                ? { backgroundAttemptId: backgroundDeclaration.attemptId }
+                : {}
             return 'failure' in resolution
-              ? { agentLaunch: { status: 'failed', failure: resolution.failure } }
+              ? {
+                  agentLaunch: {
+                    status: 'failed',
+                    failure: resolution.failure,
+                    ...backgroundAttemptId
+                  }
+                }
               : { agentLaunch: { status: 'rejected', requestError: resolution.requestError } }
           }
           agentLaunchToken = resolution.receipt.launchToken
-          agentLaunchOutcome = { status: 'launched', receipt: resolution.receipt }
+          agentLaunchOutcome = {
+            status: 'launched',
+            receipt: resolution.receipt,
+            ...(backgroundDeclaration
+              ? { backgroundAttemptId: backgroundDeclaration.attemptId }
+              : {})
+          }
           args.command = resolution.plan.launchCommand
           args.commandDelivery = 'provider'
           args.launchConfig = resolution.plan.launchConfig

@@ -1498,6 +1498,43 @@ describe('Store', () => {
     expect(persisted.automations[0].baseBranch).toBeNull()
   })
 
+  it('preserves a stored custom agent id when an update omits or cannot represent it', async () => {
+    const store = await createStore()
+    store.addRepo(makeRepo())
+    const customAgentId = 'custom-agent:claude:11111111-1111-4111-8111-111111111111'
+    const automation = store.createAutomation({
+      name: 'Nightly',
+      prompt: 'Run checks',
+      agentId: customAgentId,
+      projectId: 'r1',
+      workspaceMode: 'new_per_run',
+      timezone: 'UTC',
+      rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0',
+      dtstart: new Date('2026-05-13T00:00:00Z').getTime()
+    })
+    expect(automation.agentId).toBe(customAgentId)
+
+    // A legacy client that cannot represent the custom id sends null / omits it /
+    // sends an unrepresentable value. None may clobber the stored custom id.
+    expect(
+      store.updateAutomation(automation.id, {
+        agentId: null as unknown as (typeof automation)['agentId']
+      }).agentId
+    ).toBe(customAgentId)
+    expect(store.updateAutomation(automation.id, { name: 'Renamed' }).agentId).toBe(customAgentId)
+    expect(
+      store.updateAutomation(automation.id, {
+        agentId: 'not-a-real-agent' as unknown as (typeof automation)['agentId']
+      }).agentId
+    ).toBe(customAgentId)
+
+    // An explicit built-in change applies without losing the rest of the record.
+    const switched = store.updateAutomation(automation.id, { agentId: 'codex' })
+    expect(switched.agentId).toBe('codex')
+    expect(switched.name).toBe('Renamed')
+    expect(switched.prompt).toBe('Run checks')
+  })
+
   it('persists session reuse only for existing-workspace automations', async () => {
     const store = await createStore()
     store.addRepo(makeRepo())

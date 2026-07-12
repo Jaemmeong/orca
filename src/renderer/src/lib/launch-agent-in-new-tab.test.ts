@@ -684,6 +684,27 @@ describe('launchAgentInNewTab', () => {
     expect(queued.command).toBeFalsy()
   })
 
+  it('threads a source-control recipe owner locator into agentLaunch, never client args', async () => {
+    const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
+
+    launchAgentInNewTab({
+      agent: 'codex',
+      worktreeId: 'wt-1',
+      // agentArgs must NOT reach the host: the recipe owner locator does, so the
+      // host resolves and validates the recipe's stored args itself.
+      agentArgs: '--model gpt-5.5',
+      sourceRecord: { owner: 'source-control-recipe', id: 'fixChecks' }
+    })
+
+    const queued = mockQueueTabStartupCommand.mock.calls[0][1]
+    expect(queued.agentLaunch).toEqual({
+      selection: { kind: 'agent', agent: 'codex' },
+      allowEmptyPromptLaunch: true,
+      sourceRecord: { owner: 'source-control-recipe', id: 'fixChecks' }
+    })
+    expect(queued.agentLaunch).not.toHaveProperty('agentArgs')
+  })
+
   it('routes a bare quick launch through agentLaunch with no client command, config, or token', async () => {
     const { launchAgentInNewTab } = await import('./launch-agent-in-new-tab')
 

@@ -3148,6 +3148,45 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     )
   },
 
+  retryBackgroundAgentLaunch: async ({ attemptId, worktreeId, expectedFailureId, action }) => {
+    const repoId = getRepoIdFromWorktreeId(worktreeId)
+    const clientMutationId = globalThis.crypto.randomUUID()
+    const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), repoId))
+    if (target.kind === 'local') {
+      return window.api.worktrees.retryBackgroundAgentLaunch({
+        attemptId,
+        expectedFailureId,
+        clientMutationId,
+        action
+      })
+    }
+    return callRuntimeRpc<WorktreeRetryAgentLaunchResult>(
+      target,
+      'worktree.retryBackgroundAgentLaunch',
+      { attemptId, expectedFailureId, clientMutationId, action },
+      { timeoutMs: 10 * 60_000 }
+    )
+  },
+
+  forgetBackgroundAgentLaunch: async ({ attemptId, worktreeId, expectedOperationId }) => {
+    const repoId = getRepoIdFromWorktreeId(worktreeId)
+    const clientMutationId = globalThis.crypto.randomUUID()
+    const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), repoId))
+    if (target.kind === 'local') {
+      return window.api.worktrees.forgetBackgroundAgentLaunch({
+        attemptId,
+        expectedOperationId,
+        clientMutationId
+      })
+    }
+    return callRuntimeRpc<ForgetUnknownAgentLaunchResult>(
+      target,
+      'worktree.forgetBackgroundAgentLaunch',
+      { attemptId, expectedOperationId, clientMutationId },
+      { timeoutMs: 30_000 }
+    )
+  },
+
   fetchPendingAgentLaunchSummary: async (target?: RuntimeClientTarget) => {
     // The summary is principal-scoped host-side, so it takes the rejection's
     // runtime target rather than a worktree id; local (or omitted) hits the local

@@ -44,6 +44,9 @@ export type AssembleCommandInput = {
   /** Args template; v1 grammar for custom, legacy grammar for built-in. */
   argsTemplate: string
   isCustomArgs: boolean
+  /** Per-launch source-control recipe args (U7); v1 grammar, appended as a
+   *  distinct band after the definition argv and before the prompt argv. */
+  perLaunchArgs?: string
   /** Env values scanned so a variable referenced only in env is still required. */
   envValues: readonly string[]
   values: LaunchVariableValues
@@ -205,9 +208,18 @@ export function assembleCommand(input: AssembleCommandInput): AssembleCommandRes
     return args
   }
 
+  // Recipe args are a per-launch band validated through the SAME v1 (custom)
+  // grammar as definition custom args, so they surface the identical
+  // invalid_agent_args diagnostics and count against the same command/env caps.
+  const recipeArgs = tokenizeArgs(input.perLaunchArgs ?? '', true, input.shell)
+  if (!recipeArgs.ok) {
+    return recipeArgs
+  }
+
   const scanTexts = [
     ...(input.commandOverride ? [canonicalizeCommandOverride(input.commandOverride)] : []),
     ...args.tokens,
+    ...recipeArgs.tokens,
     ...input.envValues
   ]
   const referenced = collectReferencedVariables(scanTexts)
@@ -236,8 +248,14 @@ export function assembleCommand(input: AssembleCommandInput): AssembleCommandRes
   }
 
   const argTokens = args.tokens.map((token) => interpolateVariables(token, input.values))
-  if (input.shell === 'cmd' && input.isCustomArgs) {
-    for (const token of argTokens) {
+  const recipeArgTokens = recipeArgs.tokens.map((token) =>
+    interpolateVariables(token, input.values)
+  )
+  // Recipe args always use the v1 grammar, so they get the same cmd-metachar
+  // fail-closed check the custom definition-args band gets.
+  const cmdSensitiveTokens = [...(input.isCustomArgs ? argTokens : []), ...recipeArgTokens]
+  if (input.shell === 'cmd') {
+    for (const token of cmdSensitiveTokens) {
       if (CMD_UNENCODABLE_CHAR_RE.test(token)) {
         return {
           ok: false,
@@ -254,7 +272,7 @@ export function assembleCommand(input: AssembleCommandInput): AssembleCommandRes
 
   return {
     ok: true,
-    argv: [prefix.argv[0], ...prefix.argv.slice(1), ...argTokens] as AgentArgv,
+    argv: [prefix.argv[0], ...prefix.argv.slice(1), ...argTokens, ...recipeArgTokens] as AgentArgv,
     prefixSource: prefix.source,
     referenced: LAUNCH_VARIABLE_ORDER.filter((name) => referenced.has(name))
   }

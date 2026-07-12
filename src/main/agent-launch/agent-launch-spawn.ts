@@ -6,7 +6,7 @@
 // fields have no representation in AgentLaunchSpawnInput. Intent is constructed
 // host-side; the reference authority is derived here, not copied from the client.
 
-import type { GlobalSettings, BuiltInTuiAgent } from '../../shared/types'
+import type { GlobalSettings, BuiltInTuiAgent, Repo } from '../../shared/types'
 import type { AgentStartupShell } from '../../shared/tui-agent-startup-shell'
 import type { AgentStartupPlan } from '../../shared/tui-agent-startup'
 import type {
@@ -23,6 +23,8 @@ import type {
 } from '../../shared/agent-launch-host-contract'
 import type { AgentProviderSessionMetadata } from '../../shared/agent-session-resume'
 import type { AgentLaunchSpawnRequest } from '../../shared/agent-launch-spawn-request'
+import { isSourceControlActionId } from '../../shared/source-control-ai-actions'
+import { resolveSourceControlActionRecipe } from '../../shared/source-control-ai'
 import { normalizeCatalogFromSettings } from './agent-catalog-projections'
 import { STARTUP_COMMAND_TEXT_MAX_CHARS } from '../providers/windows-shell-args'
 import { resolveAgentLaunch, type ResolveAgentLaunchOutcome } from './resolve-agent-launch'
@@ -59,6 +61,10 @@ export type AgentLaunchSpawnInput = {
   intent: LaunchIntent
   target: AgentLaunchSpawnTarget
   variables: { repoPath?: string | null; worktreePath?: string | null }
+  /** Host-trusted repo overrides for a source-control-recipe sourceRecord lookup
+   *  (U7). Derived from the launch's worktree context, never client-supplied;
+   *  absent falls back to the global recipe. */
+  recipeRepo?: Pick<Repo, 'sourceControlAi'> | null
   scope: string
   principal: AdmissionPrincipal
   persistedSnapshot?: AgentLaunchSnapshot
@@ -85,6 +91,33 @@ function referenceFor(request: AgentLaunchSpawnRequest): AgentReferenceAuthority
   return { kind: 'live-selection' }
 }
 
+/** Resolve the host-owned per-launch args for a validated sourceRecord (U7). Only
+ *  a source-control-recipe owner contributes args today: the host validates the id
+ *  is a real action id (unknown/mismatched → untrusted_reference, no PTY), then
+ *  reads the recipe's stored agentArgs from repo-scoped settings (global fallback
+ *  when the repo id is absent). Clients never send args — only the recipe id. */
+function resolvePerLaunchArgs(
+  request: AgentLaunchSpawnRequest,
+  recipeRepo: Pick<Repo, 'sourceControlAi'> | null | undefined,
+  settings: GlobalSettings
+): { ok: true; perLaunchArgs?: string } | { ok: false; requestError: AgentLaunchRequestError } {
+  const sourceRecord = request.sourceRecord
+  if (!sourceRecord || sourceRecord.owner !== 'source-control-recipe') {
+    return { ok: true }
+  }
+  if (!sourceRecord.id || !isSourceControlActionId(sourceRecord.id)) {
+    return { ok: false, requestError: { code: 'untrusted_reference' } }
+  }
+  const recipe = resolveSourceControlActionRecipe({
+    settings,
+    repo: recipeRepo,
+    actionId: sourceRecord.id
+  })
+  return recipe.agentArgs !== undefined
+    ? { ok: true, perLaunchArgs: recipe.agentArgs }
+    : { ok: true }
+}
+
 /** Build the boundary's `resolve` closure from the surface deps + input. Each
  *  call re-reads live settings and the normalized catalog and runs the total
  *  resolver over the fixed request; it does no async I/O, so the boundary can
@@ -99,6 +132,13 @@ export function buildHostStateResolve(
   const reference = referenceFor(input.request)
   return (): HostStateResolution => {
     const settings = deps.getSettings()
+    const perLaunch = resolvePerLaunchArgs(input.request, input.recipeRepo, settings)
+    if (!perLaunch.ok) {
+      return {
+        outcome: { ok: false, requestError: perLaunch.requestError },
+        catalogRevision: deps.getCatalogRevision()
+      }
+    }
     const catalog = normalizeCatalogFromSettings(settings)
     const outcome: ResolveAgentLaunchOutcome = resolveFn(
       {
@@ -106,6 +146,9 @@ export function buildHostStateResolve(
         intent: input.intent,
         reference,
         variables: input.variables,
+        ...(perLaunch.perLaunchArgs !== undefined
+          ? { perLaunchArgs: perLaunch.perLaunchArgs }
+          : {}),
         platform: input.target.platform,
         ...(input.target.shell ? { shell: input.target.shell } : {}),
         isRemote: input.target.isRemote,

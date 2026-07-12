@@ -3,6 +3,10 @@ import { z } from 'zod'
 import { defineMethod, type RpcMethod } from '../core'
 import { OptionalFiniteNumber, OptionalString, OptionalBoolean, requiredString } from '../schemas'
 import type { MessageType, MessagePriority, TaskStatus } from '../../orchestration/db'
+import {
+  projectDispatchStatusForLegacyReaders,
+  type DispatchContextRow
+} from '../../orchestration/types'
 import { buildDispatchPreamble } from '../../orchestration/preamble'
 import { formatMessageBanner } from '../../orchestration/formatter'
 import { isGroupAddress, resolveGroupAddress } from '../../orchestration/groups'
@@ -31,6 +35,15 @@ const TASK_STATUSES: TaskStatus[] = [
 
 function getLifecycleGroupRecipientError(type: 'worker_done' | 'heartbeat'): string {
   return `${type} messages must be sent to a concrete coordinator terminal handle, not a group address.`
+}
+
+/** Project a dispatch context for the CLI/RPC read surface: coalesce the additive
+ *  `forgotten` disposition to `failed` so an independently-versioned reader that
+ *  predates it treats the dispatch as failed-and-blocked rather than an unknown
+ *  status. Internal retry-gating reads the DB row directly and still sees
+ *  `forgotten`, so gating is unaffected. */
+function toReaderDispatchContext(ctx: DispatchContextRow): DispatchContextRow {
+  return { ...ctx, status: projectDispatchStatusForLegacyReaders(ctx.status) }
 }
 
 const SendParams = z
@@ -539,10 +552,10 @@ export const ORCHESTRATION_METHODS: RpcMethod[] = [
           coordinatorHandle: params.from ?? 'coordinator',
           devMode: params.devMode
         })
-        return { dispatch: ctx ?? null, preamble }
+        return { dispatch: ctx ? toReaderDispatchContext(ctx) : null, preamble }
       }
 
-      return { dispatch: ctx ?? null }
+      return { dispatch: ctx ? toReaderDispatchContext(ctx) : null }
     }
   }),
 

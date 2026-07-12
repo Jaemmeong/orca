@@ -7,7 +7,25 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import Database from '../../sqlite/sync-database'
+import { parsePersistedAgentLaunchFailure } from '../../../shared/agent-launch-failure-schema'
+import { retryRecoveryGateForFailureCode } from '../../agent-launch/agent-launch-reconciliation'
 import { OrchestrationDb } from './db'
+
+// The only keys a persisted launch failure may carry; anything outside this set
+// (an env key/value, argv element, label, or path) would be a leak.
+const ALLOWED_FAILURE_KEYS = new Set([
+  'code',
+  'requestedAgent',
+  'baseAgent',
+  'variable',
+  'field',
+  'shell',
+  'reason',
+  'version',
+  'failureId',
+  'intent',
+  'occurredAt'
+])
 
 const FAILURE = {
   code: 'invalid_launch_snapshot' as const,
@@ -108,6 +126,65 @@ describe('OrchestrationDb U6 launch identity, structured failure, and forget', (
     const after = d.clearDispatchLaunchFailure(ctx.id)
     expect(after?.status).toBe('dispatched')
     expect(after?.agent_launch_failure).toBeNull()
+  })
+
+  it('SQLite round trip keeps the failure secret-free and re-normalizable (G6)', () => {
+    const d = createDb()
+    const task = d.createTask({ spec: 'work' })
+    const ctx = d.createDispatchContext(task.id, 'term_a')
+    const after = d.failDispatch(ctx.id, 'boom', { ...FAILURE, field: 'env', shell: 'posix' })
+    const stored = JSON.parse(after?.agent_launch_failure ?? 'null')
+    // The stored JSON carries only whitelisted keys — no argv/env/command/path text.
+    for (const key of Object.keys(stored)) {
+      expect(ALLOWED_FAILURE_KEYS.has(key)).toBe(true)
+    }
+    // It normalizes back through the strict schema on read.
+    expect(parsePersistedAgentLaunchFailure(stored)).not.toBeNull()
+    // A tampered stored blob with secret text fails normalization, and a request
+    // error can never parse as the persisted orchestration failure.
+    expect(parsePersistedAgentLaunchFailure({ ...stored, agentEnv: { TOKEN: 'x' } })).toBeNull()
+    expect(
+      parsePersistedAgentLaunchFailure({
+        code: 'idempotency_conflict',
+        version: 1,
+        failureId: 'x',
+        intent: 'orchestration',
+        occurredAt: 1
+      })
+    ).toBeNull()
+  })
+
+  it('reopening from disk keeps an unknown-launch dispatch non-retryable and secret-free (G6)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'orch-reload-'))
+    const file = join(dir, 'orch.db')
+    try {
+      const first = new OrchestrationDb(file)
+      const task = first.createTask({ spec: 'work' })
+      const ctx = first.createDispatchContext(task.id, 'term_a')
+      const unknown = { ...FAILURE, code: 'launch_state_unknown' as const, failureId: 'orch-unk-1' }
+      first.markDispatchLaunchUnknown(ctx.id, unknown)
+      first.close()
+
+      // Rehydrate from the same file — a fresh process reading the persisted row.
+      const reopened = new OrchestrationDb(file)
+      db = reopened
+      const row = reopened.getDispatchContextById(ctx.id)
+      // Coexistence survives the reload: still dispatched with the unknown card,
+      // so the coordinator sees an active dispatch and does not re-dispatch.
+      expect(row?.status).toBe('dispatched')
+      expect(reopened.getTask(task.id)?.status).not.toBe('failed')
+
+      const stored = JSON.parse(row?.agent_launch_failure ?? 'null')
+      // On-disk round trip carries only whitelisted keys — no argv/env/command/path.
+      for (const key of Object.keys(stored)) {
+        expect(ALLOWED_FAILURE_KEYS.has(key)).toBe(true)
+      }
+      // The reloaded failure re-normalizes and stays non-retryable.
+      expect(parsePersistedAgentLaunchFailure(stored)).not.toBeNull()
+      expect(retryRecoveryGateForFailureCode(stored.code).kind).toBe('launch_state_unknown')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('referencedRequestedAgents lists custom ids for the tombstone owner', () => {

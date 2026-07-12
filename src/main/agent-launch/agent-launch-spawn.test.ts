@@ -138,6 +138,73 @@ describe('resolveAgentLaunchSpawn', () => {
     expect(resolve.mock.calls[0]![0].reference).toEqual({ kind: 'persisted', owner: 'default' })
   })
 
+  it('resolves a source-control recipe id to its stored agentArgs as perLaunchArgs (U7)', async () => {
+    const resolve = vi.fn((_request: ResolveAgentLaunchRequest) => ({
+      ok: true as const,
+      launch: makeLaunch()
+    }))
+    const deps = makeDeps(resolve)
+    await resolveAgentLaunchSpawn(
+      deps,
+      baseInput({
+        request: {
+          selection: { kind: 'agent', agent: 'claude' },
+          prompt: 'x',
+          sourceRecord: { owner: 'source-control-recipe', id: 'fixChecks' }
+        },
+        recipeRepo: {
+          sourceControlAi: { actionOverrides: { fixChecks: { agentArgs: '--recipe one' } } }
+        }
+      })
+    )
+    // The host reads recipe.agentArgs from settings and threads it; the client
+    // sent only the recipe id, never args.
+    expect(resolve.mock.calls[0]![0].perLaunchArgs).toBe('--recipe one')
+    expect(resolve.mock.calls[0]![0].reference).toEqual({
+      kind: 'persisted',
+      owner: 'source-control-recipe'
+    })
+  })
+
+  it('rejects an unknown recipe action id with untrusted_reference and never resolves (U7)', async () => {
+    const resolve = vi.fn((_request: ResolveAgentLaunchRequest) => ({
+      ok: true as const,
+      launch: makeLaunch()
+    }))
+    const deps = makeDeps(resolve)
+    const result = await resolveAgentLaunchSpawn(
+      deps,
+      baseInput({
+        request: {
+          selection: { kind: 'agent', agent: 'claude' },
+          prompt: 'x',
+          sourceRecord: { owner: 'source-control-recipe', id: 'not-a-real-action' }
+        }
+      })
+    )
+    expect(result).toEqual({ ok: false, requestError: { code: 'untrusted_reference' } })
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
+  it('leaves perLaunchArgs unset for a non-recipe sourceRecord (U7)', async () => {
+    const resolve = vi.fn((_request: ResolveAgentLaunchRequest) => ({
+      ok: true as const,
+      launch: makeLaunch()
+    }))
+    const deps = makeDeps(resolve)
+    await resolveAgentLaunchSpawn(
+      deps,
+      baseInput({
+        request: {
+          selection: { kind: 'agent', agent: 'claude' },
+          prompt: 'x',
+          sourceRecord: { owner: 'quick-command', id: 'qc-1' }
+        }
+      })
+    )
+    expect('perLaunchArgs' in resolve.mock.calls[0]![0]).toBe(false)
+  })
+
   it('derives live-selection reference for a bare agent selection', async () => {
     const resolve = vi.fn((_request: ResolveAgentLaunchRequest) => ({
       ok: true as const,

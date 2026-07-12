@@ -27,7 +27,10 @@ import { resolveTuiAgentBaseAgent } from '../../../shared/custom-tui-agents'
 import { repoIsRemote } from '../../../shared/agent-launch-remote'
 import { seedCommandCodeSubmittedPromptStatus } from '@/lib/command-code-prompt-status-seed'
 import type { TuiAgent } from '../../../shared/types'
-import type { AgentLaunchSpawnRequest } from '../../../shared/agent-launch-spawn-request'
+import type {
+  AgentLaunchSourceRecord,
+  AgentLaunchSpawnRequest
+} from '../../../shared/agent-launch-spawn-request'
 import type { LaunchSource } from '../../../shared/telemetry-events'
 import { translate } from '@/i18n/i18n'
 import { getConnectionIdFromState } from '@/lib/connection-context'
@@ -43,6 +46,11 @@ export type LaunchAgentInNewTabArgs = {
   prompt?: string
   /** Optional CLI arguments appended to the selected agent command. */
   agentArgs?: string | null
+  /** Host-verified saved owner (e.g. a source-control recipe) whose stored
+   *  agentArgs/env the host resolves and applies to this launch. Clients send
+   *  only the locator; the host owns arg assembly, so callers must NOT also pass
+   *  `agentArgs` for the same recipe (it has no wire effect on this path). */
+  sourceRecord?: AgentLaunchSourceRecord
   /** Force generated prompt text out of the shell launch command. `draft`
    *  leaves it editable; `submit-after-ready` sends it once the TUI is ready. */
   promptDelivery?: 'auto-submit' | 'draft' | 'submit-after-ready'
@@ -94,6 +102,7 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
     groupId,
     prompt,
     agentArgs,
+    sourceRecord,
     promptDelivery = 'auto-submit',
     launchSource,
     quickCommandLabel,
@@ -231,7 +240,10 @@ export function launchAgentInNewTab(args: LaunchAgentInNewTabArgs): LaunchAgentI
           prompt: trimmedPrompt,
           ...(promptDelivery === 'draft' ? { promptDelivery: 'draft' as const } : {})
         }
-      : { allowEmptyPromptLaunch: true })
+      : { allowEmptyPromptLaunch: true }),
+    // Why: recipe-driven launches name the saved owner so the host resolves and
+    // applies its stored agentArgs (and env) itself; the client never sends args.
+    ...(sourceRecord ? { sourceRecord } : {})
   }
 
   const runtimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(store, worktreeId)

@@ -36,7 +36,9 @@ import type {
 } from '../../shared/agent-launch-worktree-recovery'
 
 export type WorktreeRetryAgentLaunchParams = {
-  worktreeId: string
+  /** Owner bucket for the op-store ledger/idempotency joins: worktree id for an
+   *  interactive launch, attempt id for a generic background attempt. */
+  scope: string
   expectedFailureId: string
   // Already validated to canonical lowercase UUID form by the RPC schema.
   clientMutationId: string
@@ -130,7 +132,7 @@ export async function runWorktreeRetryAgentLaunch(
 
   // 1. Idempotency — settled ledger, then in-flight. Same key + different payload
   // is a conflict; same key + same payload replays/joins without a second launch.
-  const settled = deps.operationStore.findSettledByIdempotencyKey(params.worktreeId, idempotencyKey)
+  const settled = deps.operationStore.findSettledByIdempotencyKey(params.scope, idempotencyKey)
   if (settled) {
     return settled.payloadDigest === payloadDigest
       ? deps.resolveSettled(settled)

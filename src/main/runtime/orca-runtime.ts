@@ -17704,7 +17704,7 @@ export class OrcaRuntimeService {
           )
       },
       {
-        worktreeId: worktree.id,
+        scope: worktree.id,
         expectedFailureId: args.expectedFailureId,
         clientMutationId: args.clientMutationId,
         action: args.action
@@ -17757,6 +17757,211 @@ export class OrcaRuntimeService {
         clientMutationId: args.clientMutationId
       }
     )
+  }
+
+  /** Forget a generic background attempt stranded in launch_state_unknown (U6,
+   *  ledger #13). Same reconciler/warning as the worktree forget, scoped by the
+   *  attempt id: settles the attempt `forgotten`, drops the private attribution,
+   *  and frees EXACTLY ONE reservation — never kills or spawns (the remote process
+   *  may still run). Authorization is authenticated worktree access to the
+   *  attempt's worktree; expectedOperationId is an anti-race guard, not a secret. */
+  async forgetBackgroundAgentLaunch(
+    args: { attemptId: string; expectedOperationId: string; clientMutationId: string },
+    clientKind: AuthenticatedClientKind
+  ): Promise<ForgetUnknownAgentLaunchResult> {
+    const bgStore = getHostBackgroundAgentLaunchStore()
+    const attempt = bgStore.get(args.attemptId)
+    if (!attempt) {
+      // A vanished attempt cannot be forgotten; report the same non-mutating
+      // rejection the operation-id guard would return for a missing pending.
+      return { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    const principal: AdmissionPrincipal = clientKind
+      ? { kind: 'remote', id: clientKind }
+      : { kind: 'local' }
+    return runForgetUnknownAgentLaunch(
+      {
+        operationStore: getHostAgentLaunchOperationStore(),
+        idempotencyKeyFor: (clientMutationId) =>
+          agentLaunchIdempotencyKey({ principal, scope: args.attemptId, clientMutationId }),
+        loadPendingSnapshot: () =>
+          getHostAgentLaunchOperationStore().findPendingByScope(args.attemptId),
+        loadFailureCode: () => bgStore.get(args.attemptId)?.failure?.code,
+        releaseReservation: (launchToken) =>
+          getHostAgentLaunchBoundary().settleAgentLaunch(launchToken, 'failed'),
+        clearPublicState: () => {
+          // The store's forget stamps forgottenAt + retains the unknown failure
+          // and frees the client-visible attempt; then notify its worktree.
+          bgStore.forget(args.attemptId)
+          const repoId = splitWorktreeId(attempt.worktreeId)?.repoId
+          if (repoId) {
+            this.notifyWorktreesChanged(repoId)
+          }
+        }
+      },
+      {
+        scope: args.attemptId,
+        expectedOperationId: args.expectedOperationId,
+        clientMutationId: args.clientMutationId
+      }
+    )
+  }
+
+  /** Retry a generic background attempt's settled failure (U6, ledger #13). Reuses
+   *  the shared retry orchestrator scoped by attempt id: idempotency, the
+   *  expectedFailureId guard, and server-side recovery-card gating
+   *  (retryRecoveryGateForFailureCode) all mirror the worktree retry, so a retry
+   *  while unknown/invalid is blocked WITHOUT mutation. A retryable failure re-runs
+   *  the launch in the attempt's worktree under a background intent. */
+  async retryBackgroundAgentLaunch(
+    args: {
+      attemptId: string
+      expectedFailureId: string
+      clientMutationId: string
+      action: RetryAgentLaunchAction
+    },
+    clientKind: AuthenticatedClientKind
+  ): Promise<WorktreeRetryAgentLaunchResult> {
+    const bgStore = getHostBackgroundAgentLaunchStore()
+    const principal: AdmissionPrincipal = clientKind
+      ? { kind: 'remote', id: clientKind }
+      : { kind: 'local' }
+    return runWorktreeRetryAgentLaunch(
+      {
+        operationStore: getHostAgentLaunchOperationStore(),
+        idempotencyKeyFor: (clientMutationId) =>
+          agentLaunchIdempotencyKey({ principal, scope: args.attemptId, clientMutationId }),
+        findInFlight: (key) => findWorktreeRetryInFlight(key),
+        registerInFlight: (key, digest, promise) =>
+          registerWorktreeRetryInFlight(key, digest, promise),
+        resolveSettled: (settled) => this.resolveSettledBackgroundRetry(args.attemptId, settled),
+        loadDurableFailure: () => bgStore.get(args.attemptId)?.failure ?? null,
+        resolveRecoveryGate: () =>
+          retryRecoveryGateForFailureCode(bgStore.get(args.attemptId)?.failure?.code),
+        runLaunch: (input) => this.runBackgroundRetryLaunch(args.attemptId, principal, input)
+      },
+      {
+        scope: args.attemptId,
+        expectedFailureId: args.expectedFailureId,
+        clientMutationId: args.clientMutationId,
+        action: args.action
+      }
+    )
+  }
+
+  /** Reissue the result a settled background-retry ledger entry references: the
+   *  current durable attempt failure, the reissued launched receipt, or a benign
+   *  block for a forgotten/unattributable op. Parallels the worktree variant. */
+  private resolveSettledBackgroundRetry(
+    attemptId: string,
+    settled: SettledAgentLaunchOperation
+  ): WorktreeRetryAgentLaunchResult {
+    if (settled.status === 'failed') {
+      const failure = getHostBackgroundAgentLaunchStore().get(attemptId)?.failure
+      return failure && failure.failureId === settled.failureId
+        ? { status: 'failed', failure }
+        : { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    if (settled.status === 'launched' && settled.terminalId) {
+      const receipt = getHostAgentLaunchOperationStore().registeredReceipt(settled.terminalId)
+      return receipt
+        ? { status: 'launched', receipt }
+        : { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    return { status: 'blocked', failure: { code: 'launch_state_unknown' } }
+  }
+
+  /** Run the shared reserve -> execute -> spawn -> settle launch for a background
+   *  retry against the attempt's EXISTING worktree, under a background intent.
+   *  Reuses the worktree two-stage transaction with background persistence slices
+   *  so the relaunch is admission-capped, reconcilable, and settles the attempt.
+   *  This recovers an EXISTING attempt; it never originates one (ledger #13's
+   *  no-production-producer bound is about senders, not owner-driven recovery). */
+  private async runBackgroundRetryLaunch(
+    attemptId: string,
+    principal: AdmissionPrincipal,
+    input: {
+      request: AgentLaunchSpawnRequest
+      idempotencyKey: string
+      clientMutationId: string
+      payloadDigest: string
+      priorFailureId: string
+    }
+  ): Promise<WorktreeRetryAgentLaunchResult> {
+    const bgStore = getHostBackgroundAgentLaunchStore()
+    const attempt = bgStore.get(attemptId)
+    if (!attempt) {
+      return { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    const store = this.requireStore()
+    let worktree: ResolvedWorktree
+    try {
+      worktree = await this.resolveWorktreeSelector(`id:${attempt.worktreeId}`)
+    } catch {
+      // The attempt's worktree was removed out from under the failure card.
+      return { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    const repo = store.getRepo(worktree.repoId)
+    if (!repo) {
+      return { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    const deps = this.buildWorktreeAgentLaunchDeps(repo)
+    const context: WorktreeAgentLaunchContext = {
+      request: input.request,
+      intent: { kind: 'background', attemptId, worktreeId: attempt.worktreeId },
+      descriptor: this.buildRepoAgentLaunchDescriptor(repo),
+      scope: attemptId,
+      principal
+    }
+    const authoritativePaths = { repoPath: repo.path, worktreePath: worktree.path }
+    const prepared = await prepareWorktreeAgentLaunch(deps, context, authoritativePaths)
+    if (!prepared.ok) {
+      return 'failure' in prepared
+        ? { status: 'blocked', failure: prepared.failure }
+        : { status: 'rejected', requestError: prepared.requestError }
+    }
+    const notifyWorktree = (): void => this.notifyWorktreesChanged(repo.id)
+    const outcome = await runWorktreeAgentLaunchTransaction(
+      {
+        boundary: getHostAgentLaunchBoundary(),
+        operationStore: getHostAgentLaunchOperationStore(),
+        // The attempt already exists; the durable op-store pending (beginPending)
+        // is what the reconciler joins. No worktree-meta pending write for a
+        // background attempt — its own store is the public record.
+        persistPending: () => {},
+        spawn: (plan, receipt) =>
+          this.spawnWorktreeAgentLaunchTerminal(attempt.worktreeId, plan, receipt),
+        clearPublicPending: () => {},
+        persistFailure: (failure) => {
+          bgStore.settleFailed(attemptId, failure)
+          notifyWorktree()
+        },
+        mintFailureId: () => randomUUID()
+      },
+      {
+        operationId: mintAgentLaunchOperationId(),
+        idempotencyKey: input.idempotencyKey,
+        scope: attemptId,
+        payloadDigest: input.payloadDigest,
+        clientMutationId: input.clientMutationId,
+        requestedAgent: prepared.requestedAgent,
+        intent: 'background',
+        priorFailureId: input.priorFailureId,
+        execute: () =>
+          executeWorktreeAgentLaunch(deps, context, authoritativePaths, {
+            reservationId: prepared.reservationId,
+            expectedStableInputDigest: prepared.stableInputDigest
+          })
+      }
+    )
+    if (outcome.status === 'launched') {
+      bgStore.settleLaunched(attemptId)
+      notifyWorktree()
+      return { status: 'launched', receipt: outcome.receipt }
+    }
+    return outcome.status === 'failed'
+      ? { status: 'failed', failure: outcome.failure }
+      : { status: 'rejected', requestError: outcome.requestError }
   }
 
   /** Redacted pending-launch rows for the capacity-recovery sheet, access-filtered
@@ -18262,6 +18467,9 @@ export class OrcaRuntimeService {
         scope: workspace.id,
         worktreePath: workspace.path,
         repoPath: workspace.repo?.path ?? null,
+        // Host-trusted repo overrides for a source-control-recipe sourceRecord
+        // (U7): derived from the resolved workspace, never client-supplied.
+        recipeRepo: workspace.repo,
         // Authenticated RPC clients scope admission to their kind; in-process
         // desktop callers are local. Never derived from client JSON.
         principal: clientKind ? { kind: 'remote', id: clientKind } : { kind: 'local' }
