@@ -13242,7 +13242,8 @@
         "orchestration": "A task's agent didn't start.",
         "background": "A background agent didn't start.",
         "generic": "An agent launch didn't finish."
-      }
+      },
+      "forgotten": "You forgot this launch, so it won't run again."
     },
     "requestError": {
       "idempotencyConflict": "This launch is already in progress.",

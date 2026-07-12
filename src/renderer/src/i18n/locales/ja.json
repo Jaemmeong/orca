@@ -13242,7 +13242,8 @@
         "orchestration": "タスクのエージェントを起動できませんでした。",
         "background": "バックグラウンドエージェントを起動できませんでした。",
         "generic": "エージェントの起動が完了しませんでした。"
-      }
+      },
+      "forgotten": "You forgot this launch, so it won't run again."
     },
     "requestError": {
       "idempotencyConflict": "この起動はすでに進行中です。",

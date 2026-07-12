@@ -13242,7 +13242,8 @@
         "orchestration": "No se pudo iniciar el agente de una tarea.",
         "background": "No se pudo iniciar un agente en segundo plano.",
         "generic": "No se completó un inicio de agente."
-      }
+      },
+      "forgotten": "You forgot this launch, so it won't run again."
     },
     "requestError": {
       "idempotencyConflict": "Este inicio ya está en curso.",

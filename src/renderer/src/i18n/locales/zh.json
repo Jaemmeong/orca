@@ -13242,7 +13242,8 @@
         "orchestration": "任务的智能体未能启动。",
         "background": "后台智能体未能启动。",
         "generic": "智能体启动未能完成。"
-      }
+      },
+      "forgotten": "You forgot this launch, so it won't run again."
     },
     "requestError": {
       "idempotencyConflict": "此次启动已在进行中。",

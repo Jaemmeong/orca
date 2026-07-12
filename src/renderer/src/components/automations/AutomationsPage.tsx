@@ -91,8 +91,10 @@ import {
 import {
   canRerunAutomationRun,
   getAutomationRerunPendingRemainingMs,
+  getAutomationRunLaunchFailure,
   getAutomationRunViewState
 } from './automation-run-view-state'
+import { AutomationRunLaunchFailure } from './AutomationRunLaunchFailure'
 import {
   automationRunMatchesPaneKey,
   buildAutomationRunOpenLayout,
@@ -770,6 +772,9 @@ export default function AutomationsPage(): React.JSX.Element {
             : []
         })
       })
+    : null
+  const selectedAutomationRunPageLaunchFailure = selectedAutomationRunPage
+    ? getAutomationRunLaunchFailure(selectedAutomationRunPage)
     : null
   const canRerunSelectedAutomationRunPage =
     selectedAutomationRunPage !== null &&
@@ -2965,6 +2970,12 @@ export default function AutomationsPage(): React.JSX.Element {
                     }
                     onBack={() => setSelectedAutomationRunPageId(null)}
                   >
+                    {selectedAutomationRunPageLaunchFailure ? (
+                      <AutomationRunLaunchFailure
+                        failure={selectedAutomationRunPageLaunchFailure.failure}
+                        forgottenAt={selectedAutomationRunPageLaunchFailure.forgottenAt}
+                      />
+                    ) : null}
                     <CommentMarkdown
                       variant="document"
                       content={getAutomationRunContent(selectedAutomationRunPage)}
