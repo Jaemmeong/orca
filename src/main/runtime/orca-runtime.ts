@@ -17752,7 +17752,7 @@ export class OrcaRuntimeService {
         }
       },
       {
-        worktreeId: worktree.id,
+        scope: worktree.id,
         expectedOperationId: args.expectedOperationId,
         clientMutationId: args.clientMutationId
       }

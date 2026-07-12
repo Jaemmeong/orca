@@ -86,7 +86,7 @@ describe('runForgetUnknownAgentLaunch', () => {
     expect(store.getPending('token-unknown-1')).not.toBeNull()
 
     const result = runForgetUnknownAgentLaunch(deps, {
-      worktreeId: WORKTREE_ID,
+      scope: WORKTREE_ID,
       expectedOperationId: OPERATION_ID,
       clientMutationId: CLIENT_MUTATION_ID
     })
@@ -109,7 +109,7 @@ describe('runForgetUnknownAgentLaunch', () => {
     store.beginPending(pending())
     const deps = buildDeps(store)
     const params = {
-      worktreeId: WORKTREE_ID,
+      scope: WORKTREE_ID,
       expectedOperationId: OPERATION_ID,
       clientMutationId: CLIENT_MUTATION_ID
     }
@@ -130,7 +130,7 @@ describe('runForgetUnknownAgentLaunch', () => {
     const deps = buildDeps(store)
 
     const result = runForgetUnknownAgentLaunch(deps, {
-      worktreeId: WORKTREE_ID,
+      scope: WORKTREE_ID,
       expectedOperationId: 'op-stale',
       clientMutationId: CLIENT_MUTATION_ID
     })
@@ -149,7 +149,7 @@ describe('runForgetUnknownAgentLaunch', () => {
     const deps = buildDeps(store, { loadFailureCode: () => 'spawn_failed' })
 
     const result = runForgetUnknownAgentLaunch(deps, {
-      worktreeId: WORKTREE_ID,
+      scope: WORKTREE_ID,
       expectedOperationId: OPERATION_ID,
       clientMutationId: CLIENT_MUTATION_ID
     })
@@ -177,7 +177,7 @@ describe('runForgetUnknownAgentLaunch', () => {
     const deps = buildDeps(store)
 
     const result = runForgetUnknownAgentLaunch(deps, {
-      worktreeId: WORKTREE_ID,
+      scope: WORKTREE_ID,
       expectedOperationId: OPERATION_ID,
       clientMutationId: CLIENT_MUTATION_ID
     })

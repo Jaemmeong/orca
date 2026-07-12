@@ -76,7 +76,7 @@ export function runForgetUnknownAgentLaunch(
   })
 
   // 1. Idempotency first: a settled ledger entry replays without re-mutating.
-  const settled = deps.operationStore.findSettledByIdempotencyKey(params.worktreeId, idempotencyKey)
+  const settled = deps.operationStore.findSettledByIdempotencyKey(params.scope, idempotencyKey)
   if (settled) {
     return settled.payloadDigest === payloadDigest
       ? resolveSettled(settled)
@@ -101,7 +101,7 @@ export function runForgetUnknownAgentLaunch(
   deps.operationStore.recordSettled({
     operationId: pending.operationId,
     idempotencyKey,
-    scope: params.worktreeId,
+    scope: params.scope,
     payloadDigest,
     status: 'forgotten',
     terminalId: null,
