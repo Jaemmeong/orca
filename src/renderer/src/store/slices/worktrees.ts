@@ -3190,6 +3190,40 @@ export const createWorktreeSlice: StateCreator<AppState, [], [], WorktreeSlice> 
     )
   },
 
+  unknownAgentLaunchSiblingPreflight: async ({ worktreeId }) => {
+    const repoId = getRepoIdFromWorktreeId(worktreeId)
+    const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), repoId))
+    // A local anchor never has bulk-eligible siblings (:498 only clears a
+    // disconnected remote provider), so the host returns 0 and the opt-in stays
+    // hidden; the host name is moot there.
+    if (target.kind === 'local') {
+      const { count } = await window.api.worktrees.unknownAgentLaunchSiblingCount({ worktreeId })
+      return { count, hostName: '' }
+    }
+    const { count } = await callRuntimeRpc<{ count: number }>(
+      target,
+      'worktree.unknownAgentLaunchSiblingCount',
+      { worktree: toRuntimeWorktreeSelector(worktreeId) },
+      { timeoutMs: 30_000 }
+    )
+    const environment = get().runtimeEnvironments.find((entry) => entry.id === target.environmentId)
+    return { count, hostName: environment?.name || target.environmentId }
+  },
+
+  forgetUnknownAgentLaunchSiblings: async ({ worktreeId }) => {
+    const repoId = getRepoIdFromWorktreeId(worktreeId)
+    const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), repoId))
+    if (target.kind === 'local') {
+      return window.api.worktrees.forgetUnknownAgentLaunchSiblings({ worktreeId })
+    }
+    return callRuntimeRpc<{ forgottenCount: number }>(
+      target,
+      'worktree.forgetUnknownAgentLaunchSiblings',
+      { worktree: toRuntimeWorktreeSelector(worktreeId) },
+      { timeoutMs: 30_000 }
+    )
+  },
+
   fetchPendingAgentLaunchSummary: async (target?: RuntimeClientTarget) => {
     // The summary is principal-scoped host-side, so it takes the rejection's
     // runtime target rather than a worktree id; local (or omitted) hits the local

@@ -20,6 +20,8 @@ const worktreeBox = vi.hoisted(() => ({ worktree: null as WorktreeShape | null }
 const mocks = vi.hoisted(() => ({
   retryWorktreeAgentLaunch: vi.fn(),
   forgetWorktreeAgentLaunch: vi.fn(),
+  unknownAgentLaunchSiblingPreflight: vi.fn(),
+  forgetUnknownAgentLaunchSiblings: vi.fn(),
   openSettingsTarget: vi.fn(),
   confirm: vi.fn()
 }))
@@ -71,11 +73,15 @@ beforeEach(() => {
   }
   mocks.retryWorktreeAgentLaunch.mockResolvedValue({ status: 'launched', receipt: {} })
   mocks.forgetWorktreeAgentLaunch.mockResolvedValue({ status: 'forgotten' })
+  mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 0, hostName: '' })
+  mocks.forgetUnknownAgentLaunchSiblings.mockResolvedValue({ forgottenCount: 0 })
   mocks.confirm.mockResolvedValue(true)
   worktreeBox.worktree = null
   storeBox.state = {
     retryWorktreeAgentLaunch: mocks.retryWorktreeAgentLaunch,
     forgetWorktreeAgentLaunch: mocks.forgetWorktreeAgentLaunch,
+    unknownAgentLaunchSiblingPreflight: mocks.unknownAgentLaunchSiblingPreflight,
+    forgetUnknownAgentLaunchSiblings: mocks.forgetUnknownAgentLaunchSiblings,
     openSettingsTarget: mocks.openSettingsTarget
   }
 })
@@ -150,6 +156,85 @@ describe('AgentLaunchRecoveryCardContainer', () => {
     })
     expect(mocks.confirm).not.toHaveBeenCalled()
     expect(mocks.forgetWorktreeAgentLaunch).not.toHaveBeenCalled()
+  })
+
+  it('offers the sibling opt-in and bulk-forgets when the box is checked', async () => {
+    mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 3, hostName: 'devbox' })
+    mocks.confirm.mockImplementation(
+      async (options: { optIn?: { onConfirm: (checked: boolean) => void } }) => {
+        options.optIn?.onConfirm(true)
+        return true
+      }
+    )
+    worktreeBox.worktree = {
+      agentLaunchFailure: failure('launch_state_unknown'),
+      pendingAgentLaunch: { operationId: 'op-3', requestedAgent: undefined as never }
+    }
+    await render()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.unknownAgentLaunchSiblingPreflight).toHaveBeenCalledExactlyOnceWith({
+      worktreeId: WORKTREE_ID
+    })
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        optIn: expect.objectContaining({
+          label: 'Also forget 3 other stranded launches on devbox.'
+        })
+      })
+    )
+    expect(mocks.forgetWorktreeAgentLaunch).toHaveBeenCalledExactlyOnceWith({
+      worktreeId: WORKTREE_ID,
+      expectedOperationId: 'op-3'
+    })
+    expect(mocks.forgetUnknownAgentLaunchSiblings).toHaveBeenCalledExactlyOnceWith({
+      worktreeId: WORKTREE_ID
+    })
+  })
+
+  it('offers the opt-in but skips the bulk forget when the box is left unchecked', async () => {
+    mocks.unknownAgentLaunchSiblingPreflight.mockResolvedValue({ count: 1, hostName: 'devbox' })
+    mocks.confirm.mockImplementation(
+      async (options: { optIn?: { onConfirm: (checked: boolean) => void } }) => {
+        options.optIn?.onConfirm(false)
+        return true
+      }
+    )
+    worktreeBox.worktree = {
+      agentLaunchFailure: failure('launch_state_unknown'),
+      pendingAgentLaunch: { operationId: 'op-3', requestedAgent: undefined as never }
+    }
+    await render()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        optIn: expect.objectContaining({
+          label: 'Also forget 1 other stranded launch on devbox.'
+        })
+      })
+    )
+    expect(mocks.forgetWorktreeAgentLaunch).toHaveBeenCalledOnce()
+    expect(mocks.forgetUnknownAgentLaunchSiblings).not.toHaveBeenCalled()
+  })
+
+  it('omits the opt-in and still forgets when the sibling preflight fails', async () => {
+    mocks.unknownAgentLaunchSiblingPreflight.mockRejectedValue(new Error('unreachable'))
+    worktreeBox.worktree = {
+      agentLaunchFailure: failure('launch_state_unknown'),
+      pendingAgentLaunch: { operationId: 'op-3', requestedAgent: undefined as never }
+    }
+    await render()
+    await act(async () => {
+      buttonByLabel('Forget launch…').click()
+    })
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith(
+      expect.not.objectContaining({ optIn: expect.anything() })
+    )
+    expect(mocks.forgetWorktreeAgentLaunch).toHaveBeenCalledOnce()
+    expect(mocks.forgetUnknownAgentLaunchSiblings).not.toHaveBeenCalled()
   })
 
   it('routes selection recovery to the desktop-host agents settings pane', async () => {

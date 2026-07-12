@@ -1305,6 +1305,14 @@ export type PreloadApi = {
       expectedOperationId: string
       clientMutationId: string
     }) => Promise<ForgetUnknownAgentLaunchResult>
+    /** Local-desktop-only override: forget a stranded launch whose owning remote
+     *  principal has been explicitly revoked (plan :498). The host proves the
+     *  revocation; never bulk, never remote — the paired-web preload rejects it. */
+    forgetRevokedRemoteAgentLaunch: (args: {
+      worktreeId: string
+      expectedOperationId: string
+      clientMutationId: string
+    }) => Promise<ForgetUnknownAgentLaunchResult>
     /** Retry a generic background attempt's settled failure. The host owns
      *  idempotency, the failure-id guard, and recovery-card gating. */
     retryBackgroundAgentLaunch: (

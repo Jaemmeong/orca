@@ -210,6 +210,20 @@ export type WorktreeSlice = {
     worktreeId: string
     expectedOperationId: string
   }) => Promise<ForgetUnknownAgentLaunchResult>
+  /** Confirm-open preflight for the ":498 Also forget N…" opt-in. Returns the
+   *  host-scoped count of same-principal siblings stranded on the anchor's
+   *  disconnected host, plus that host's display name for the label. Count is 0 for
+   *  a local anchor (bulk only spans a disconnected remote provider), so the opt-in
+   *  never appears there. */
+  unknownAgentLaunchSiblingPreflight: (args: {
+    worktreeId: string
+  }) => Promise<{ count: number; hostName: string }>
+  /** Same-principal bulk forget on the anchor's disconnected host. Never kills or
+   *  spawns; frees only each sibling's own reservation and is idempotent (a
+   *  re-submit forgets 0). Returns how many siblings actually settled. */
+  forgetUnknownAgentLaunchSiblings: (args: {
+    worktreeId: string
+  }) => Promise<{ forgottenCount: number }>
   /** Fetch the host-redacted pending-launch summary for the capacity-recovery
    *  sheet. Pass the runtime target the capacity rejection came from; defaults to
    *  local. The host scopes rows to the authenticated principal and strips secrets. */

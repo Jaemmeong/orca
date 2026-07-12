@@ -977,6 +977,7 @@ export function registerWorktreeHandlers(
   ipcMain.removeHandler('worktrees:persistSortOrder')
   ipcMain.removeHandler('worktrees:retryAgentLaunch')
   ipcMain.removeHandler('worktrees:forgetAgentLaunch')
+  ipcMain.removeHandler('worktrees:forgetRevokedRemoteAgentLaunch')
   ipcMain.removeHandler('worktrees:retryBackgroundAgentLaunch')
   ipcMain.removeHandler('worktrees:forgetBackgroundAgentLaunch')
   ipcMain.removeHandler('worktrees:pendingAgentLaunchSummary')
@@ -2187,6 +2188,23 @@ export function registerWorktreeHandlers(
         },
         undefined
       )
+  )
+
+  // LOCAL-DESKTOP-ONLY revoked-principal forget override (plan :498). No runtime RPC
+  // counterpart exists — a remote caller must never reach it — so this IPC handler is
+  // the only surface. The runtime proves the row's owning remote principal is revoked
+  // (no paired device of its scope) before forgetting; expectedOperationId is an
+  // anti-race guard, not a secret. Never kills or spawns.
+  ipcMain.handle(
+    'worktrees:forgetRevokedRemoteAgentLaunch',
+    async (
+      _event,
+      args: { worktreeId: string; expectedOperationId: string; clientMutationId: string }
+    ): Promise<ForgetUnknownAgentLaunchResult> =>
+      runtime.forgetRevokedRemoteWorktreeAgentLaunch(`id:${args.worktreeId}`, {
+        expectedOperationId: args.expectedOperationId,
+        clientMutationId: args.clientMutationId
+      })
   )
 
   // Local desktop equivalent of worktree.retryBackgroundAgentLaunch. Keyed by the

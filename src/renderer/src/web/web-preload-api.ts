@@ -1505,6 +1505,13 @@ function createWorktreesApi(): NonNullable<Partial<PreloadApi>['worktrees']> {
         expectedOperationId,
         clientMutationId
       }),
+    // Why: the revoked-principal forget is a local-desktop-owner-only override with
+    // no runtime RPC (plan :498 "no remote caller gets this override"). A paired web
+    // client rejects clean rather than routing it.
+    forgetRevokedRemoteAgentLaunch: () =>
+      Promise.reject(
+        new Error('Forgetting a revoked device’s launch is unavailable in paired web clients.')
+      ),
     retryBackgroundAgentLaunch: async ({
       attemptId,
       expectedFailureId,

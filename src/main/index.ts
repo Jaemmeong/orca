@@ -1855,7 +1855,13 @@ app.whenReady().then(async () => {
     getAdditionalAiVaultCodexHomePaths: () =>
       codexRuntimeHome ? [codexRuntimeHome.getHostRuntimeHomePath()] : [],
     buildAgentHookPtyEnv: () =>
-      isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {}
+      isAgentStatusHooksEnabled(store?.getSettings()) ? agentHookServer.buildPtyEnv() : {},
+    // Why: sourced lazily — runtimeRpc (and its DeviceRegistry) is constructed after
+    // this service. The revoked-principal forget override reads the paired-device
+    // scopes to prove a remote principal is explicitly revoked (no device remains),
+    // not merely disconnected (plan :498).
+    getPairedDeviceScopes: () =>
+      runtimeRpc?.getDeviceRegistry()?.listDevices().map((device) => device.scope) ?? []
   })
   runtime = runtimeService
   automations = new AutomationService(store, {

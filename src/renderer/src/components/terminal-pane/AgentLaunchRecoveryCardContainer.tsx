@@ -3,7 +3,10 @@ import { useAppStore } from '@/store'
 import { getWorktreeMapFromState } from '@/store/selectors'
 import { useConfirmationDialog } from '@/components/confirmation-dialog'
 import { AgentLaunchRecoveryCard } from './AgentLaunchRecoveryCard'
-import { forgetLaunchConfirmation } from '@/lib/agent-launch-recovery-action-copy'
+import {
+  forgetLaunchConfirmation,
+  forgetSiblingsOptInLabel
+} from '@/lib/agent-launch-recovery-action-copy'
 import {
   AGENTS_SETTINGS_ACTIONS,
   RETRY_SAME_ACTIONS
@@ -29,6 +32,10 @@ export function AgentLaunchRecoveryCardContainer({
   )
   const retryWorktreeAgentLaunch = useAppStore((s) => s.retryWorktreeAgentLaunch)
   const forgetWorktreeAgentLaunch = useAppStore((s) => s.forgetWorktreeAgentLaunch)
+  const unknownAgentLaunchSiblingPreflight = useAppStore(
+    (s) => s.unknownAgentLaunchSiblingPreflight
+  )
+  const forgetUnknownAgentLaunchSiblings = useAppStore((s) => s.forgetUnknownAgentLaunchSiblings)
   const openSettingsTarget = useAppStore((s) => s.openSettingsTarget)
   const openModal = useAppStore((s) => s.openModal)
   const confirm = useConfirmationDialog()
@@ -59,14 +66,44 @@ export function AgentLaunchRecoveryCardContainer({
         if (!pendingOperationId) {
           return
         }
+        // Preflight the same-principal siblings stranded on the anchor's
+        // disconnected host so the confirmation can offer the ":498 Also forget N…"
+        // opt-in; a failed preflight (e.g. a momentarily unreachable host) must not
+        // block the single forget, so it degrades to the plain confirmation.
+        let siblingCount = 0
+        let siblingHostName = ''
+        try {
+          const preflight = await unknownAgentLaunchSiblingPreflight({ worktreeId })
+          siblingCount = preflight.count
+          siblingHostName = preflight.hostName
+        } catch {
+          siblingCount = 0
+        }
+        let forgetSiblings = false
         // Forget cannot stop a possibly-live remote process (plan :498), so it is
         // gated behind an explicit destructive confirmation carrying that warning.
-        if (!(await confirm(forgetLaunchConfirmation()))) {
+        const confirmed = await confirm(
+          siblingCount > 0
+            ? {
+                ...forgetLaunchConfirmation(),
+                optIn: {
+                  label: forgetSiblingsOptInLabel(siblingCount, siblingHostName),
+                  onConfirm: (checked) => {
+                    forgetSiblings = checked
+                  }
+                }
+              }
+            : forgetLaunchConfirmation()
+        )
+        if (!confirmed) {
           return
         }
         setBusy(true)
         try {
           await forgetWorktreeAgentLaunch({ worktreeId, expectedOperationId: pendingOperationId })
+          if (forgetSiblings) {
+            await forgetUnknownAgentLaunchSiblings({ worktreeId })
+          }
         } finally {
           setBusy(false)
         }
@@ -97,6 +134,8 @@ export function AgentLaunchRecoveryCardContainer({
       confirm,
       retryWorktreeAgentLaunch,
       forgetWorktreeAgentLaunch,
+      unknownAgentLaunchSiblingPreflight,
+      forgetUnknownAgentLaunchSiblings,
       openSettingsTarget,
       openModal
     ]

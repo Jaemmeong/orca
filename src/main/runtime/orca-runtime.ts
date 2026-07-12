@@ -341,7 +341,8 @@ import type {
   RuntimeSyncWindowGraph,
   RuntimeWorktreeListResult,
   BrowserTabInfo,
-  BrowserScreencastResult
+  BrowserScreencastResult,
+  DeviceScope
 } from '../../shared/runtime-types'
 import type { AutomationService } from '../automations/service'
 import { RuntimeBrowserCommands } from './orca-runtime-browser'
@@ -1509,6 +1510,11 @@ const BULK_FORGET_EXCLUDED_INTENTS: ReadonlySet<AgentLaunchIntentKind> = new Set
   'orchestration',
   'background'
 ])
+
+// The remote admission principals a device pairing can own. A `remote:{kind}` row
+// is "revoked" (plan :498's override precondition) when NO paired device of that
+// scope remains in the pairing store; the scope string doubles as the principal id.
+const REVOCABLE_REMOTE_CLIENT_KINDS: readonly DeviceScope[] = ['mobile', 'runtime']
 
 const MOBILE_TERMINAL_CREATE_RESULT_TTL_MS = 60_000
 const FOREGROUND_AGENT_WRAPPER_RETRY_INTERVAL_MS = 150
@@ -2746,6 +2752,7 @@ export class OrcaRuntimeService {
   private readonly onTerminalSideEffects: ((batch: TerminalSideEffectBatch) => void) | null
   private readonly getAgentStatusSnapshotFn: (() => AgentStatusIpcPayload[]) | null
   private readonly buildAgentHookPtyEnv: (() => Record<string, string>) | null
+  private readonly getPairedDeviceScopesFn: (() => readonly DeviceScope[]) | null
   private accountServices: RuntimeAccountServices | null = null
   private commitMessageAgentEnv: CommitMessageAgentEnvironmentResolvers | null = null
   private automationService: AutomationService | null = null
@@ -2779,6 +2786,12 @@ export class OrcaRuntimeService {
       // managed-Codex sessions. The runtime ctor runs in BOTH window and serve.
       getAdditionalAiVaultCodexHomePaths?: () => readonly string[]
       buildAgentHookPtyEnv?: () => Record<string, string>
+      // Why: the current paired-device scopes, sourced lazily from the RuntimeRpc
+      // server's DeviceRegistry (constructed AFTER this service). The revoked-
+      // principal forget override reads it to prove a `remote:{kind}` principal is
+      // explicitly revoked — no paired device of that scope remains — rather than
+      // merely disconnected (plan :498, revocation state not liveness).
+      getPairedDeviceScopes?: () => readonly DeviceScope[]
       // Why: the concrete Store backing the agent-catalog service. Passed here
       // (not derived from `store`) because RuntimeStore is a narrowed subset that
       // cannot satisfy the service getter, and both the runtime RPC surface and
@@ -2811,6 +2824,7 @@ export class OrcaRuntimeService {
     this.onPtyStopped = deps?.onPtyStopped ?? null
     this.onTerminalAgentStatus = deps?.onTerminalAgentStatus ?? null
     this.buildAgentHookPtyEnv = deps?.buildAgentHookPtyEnv ?? null
+    this.getPairedDeviceScopesFn = deps?.getPairedDeviceScopes ?? null
     this.onTerminalSideEffects = deps?.onTerminalSideEffects ?? null
     // Why: the ConPTY spawn mark can land after daemon stream data already
     // created this PTY's emulator; the mark retrofits the DA1 override here
@@ -18195,6 +18209,86 @@ export class OrcaRuntimeService {
       }
     }
     return { forgottenCount }
+  }
+
+  /** The revoked remote principal that owns this stranded worktree row, or null.
+   *  A `remote:{kind}` principal qualifies only when it is EXPLICITLY REVOKED —
+   *  no paired device of that scope remains in the pairing store (revocation is
+   *  removal; checked against the store, NOT connection liveness, so a merely
+   *  disconnected-but-still-paired device does NOT qualify) — and it currently
+   *  owns the row on a disconnected REMOTE provider. A scope has one owner, so at
+   *  most one kind matches; a still-paired kind is skipped, and a local-host row is
+   *  never returned (plan :498 never clears a local reservation). */
+  private resolveRevokedRemoteRowOwner(scope: string): DeviceScope | null {
+    const pairedScopes = new Set(this.getPairedDeviceScopesFn?.() ?? [])
+    const boundary = getHostAgentLaunchBoundary()
+    for (const kind of REVOCABLE_REMOTE_CLIENT_KINDS) {
+      if (pairedScopes.has(kind)) {
+        continue
+      }
+      const owns = boundary
+        .capacitySummaryFor({ kind: 'remote', id: kind })
+        .some((row) => row.scope === scope && row.executionHostId !== 'local')
+      if (owns) {
+        return kind
+      }
+    }
+    return null
+  }
+
+  /** LOCAL-DESKTOP-ONLY override: forget a worktree launch stranded in
+   *  launch_state_unknown whose owning remote principal has been explicitly REVOKED
+   *  and whose provider is disconnected (plan :498). When a paired device is
+   *  unpaired, its stranded rows are orphaned — no owner-facing surface remains to
+   *  forget them — so the authenticated local desktop host owner may clear them one
+   *  at a time. The added gate (revoked owner + remote-owned row) is what keeps this
+   *  from ever touching an active paired device's, the local host's, automation's,
+   *  or orchestration's reservation. Worktree mutation access is the same bar as the
+   *  owner-facing forget: the worktree resolves and its repo is present. Never bulk,
+   *  and NEVER exposed as a runtime RPC — no remote caller gets this override; the
+   *  paired-web preload rejects it. Same reconciler + :498 warning as the plain
+   *  forget; never kills or spawns (the remote process may still run). */
+  async forgetRevokedRemoteWorktreeAgentLaunch(
+    worktreeSelector: string,
+    args: { expectedOperationId: string; clientMutationId: string }
+  ): Promise<ForgetUnknownAgentLaunchResult> {
+    const worktree = await this.resolveWorktreeSelector(worktreeSelector)
+    const store = this.requireStore()
+    const repo = store.getRepo(worktree.repoId)
+    if (!repo) {
+      throw new Error('repo_not_found')
+    }
+    const revokedOwner = this.resolveRevokedRemoteRowOwner(worktree.id)
+    if (!revokedOwner) {
+      // No revoked remote principal owns this row (still-paired, local-owned, or
+      // absent) — the same non-mutating rejection the op-id guard would return.
+      return { status: 'rejected', requestError: { code: 'stale_agent_launch_failure' } }
+    }
+    const principal: AdmissionPrincipal = { kind: 'remote', id: revokedOwner }
+    return runForgetUnknownAgentLaunch(
+      {
+        operationStore: getHostAgentLaunchOperationStore(),
+        idempotencyKeyFor: (clientMutationId) =>
+          agentLaunchIdempotencyKey({ principal, scope: worktree.id, clientMutationId }),
+        loadPendingSnapshot: () =>
+          getHostAgentLaunchOperationStore().findPendingByScope(worktree.id),
+        loadFailureCode: () => store.getWorktreeMeta(worktree.id)?.agentLaunchFailure?.code,
+        releaseReservation: (launchToken) =>
+          getHostAgentLaunchBoundary().settleAgentLaunch(launchToken, 'failed'),
+        clearPublicState: () => {
+          store.setWorktreeMeta(worktree.id, {
+            pendingAgentLaunch: undefined,
+            agentLaunchFailure: undefined
+          })
+          this.notifyWorktreesChanged(repo.id)
+        }
+      },
+      {
+        scope: worktree.id,
+        expectedOperationId: args.expectedOperationId,
+        clientMutationId: args.clientMutationId
+      }
+    )
   }
 
   /** The worktree launch-card writer for reconciliation. settleLaunched clears the
