@@ -3149,6 +3149,16 @@ export class OrcaRuntimeService {
     return await this.automationService.runNow(id)
   }
 
+  // Why (§U9 W-T3, SSH use case): a run stranded on THIS host lives in this host's
+  // automation service, so a remote client's Forget must reach the target that owns
+  // the runId — the desktop-IPC forgetRun only settles local-owned runs.
+  forgetAutomationRun(runId: string): AutomationRun {
+    if (!this.automationService) {
+      throw new Error('runtime_unavailable')
+    }
+    return this.automationService.forgetAutomationRun(runId)
+  }
+
   private async resolveAutomationTarget(
     input: {
       repo?: string

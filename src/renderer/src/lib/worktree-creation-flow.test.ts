@@ -571,11 +571,11 @@ describe('staged background worktree creation', () => {
     expect(ensureWorktreeHasInitialTerminal).not.toHaveBeenCalled()
   })
 
-  // Why: an agent create is a host-atomic launch. The renderer must thread the
-  // identity-only `agentLaunch` to createWorktree, suppress its own primary spawn
-  // (host owns it, I9), and emit agent_started off the launched receipt because
-  // the host create-spawn threads no telemetry.
-  it('threads agentLaunch, suppresses the client primary, and emits telemetry on launch', async () => {
+  // Why: an agent create is a host-atomic launch. The renderer threads the
+  // identity-only `agentLaunch` plus the surface telemetry to createWorktree and
+  // suppresses its own primary spawn (host owns it, I9). The host emits
+  // agent_started off its receipt, so the renderer must not emit it.
+  it('threads agentLaunch and telemetry, suppresses the client primary, and does not emit', async () => {
     store.activeView = 'terminal'
     store.activePendingCreationId = 'creation-1'
     const agentLaunch = {
@@ -601,14 +601,19 @@ describe('staged background worktree creation', () => {
     )
 
     await vi.waitFor(() => expect(activateAndRevealWorktree).toHaveBeenCalled())
-    // agentLaunch rides the createWorktree options bag (26th positional arg).
+    // agentLaunch + the surface telemetry ride the createWorktree options bag
+    // (26th positional arg); the host emits agent_started off its receipt.
     const createArgs = store.createWorktree.mock.calls[0] as unknown[]
-    expect(createArgs[25]).toEqual({ agentLaunch })
+    expect(createArgs[25]).toEqual({
+      agentLaunch,
+      agentLaunchTelemetry: { launch_source: 'new_workspace_composer', request_kind: 'new' }
+    })
     expect(activateAndRevealWorktree).toHaveBeenCalledWith(
       'wt-1',
       expect.objectContaining({ hostSpawnedPrimary: true })
     )
-    expect(vi.mocked(track)).toHaveBeenCalledWith('agent_started', quickTelemetry)
+    // The renderer no longer emits agent_started — the host owns that emit now.
+    expect(vi.mocked(track)).not.toHaveBeenCalled()
   })
 
   it('toasts a staged create error after the user leaves the creation surface', async () => {

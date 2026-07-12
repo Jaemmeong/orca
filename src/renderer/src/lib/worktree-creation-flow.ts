@@ -26,7 +26,6 @@ import type {
   WorktreeCreationPhase,
   WorktreeCreationRequest
 } from '@/lib/pending-worktree-creation'
-import { track } from '@/lib/telemetry'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 
 type ContinueBackgroundWorktreeCreationOptions = {
@@ -149,7 +148,22 @@ async function executeWorktreeCreation(
       preparedRequest.linkedAzureDevOpsPR,
       preparedRequest.linkedGiteaPR,
       preparedRequest.compareBaseRef,
-      preparedRequest.agentLaunch ? { agentLaunch: preparedRequest.agentLaunch } : undefined
+      preparedRequest.agentLaunch
+        ? {
+            agentLaunch: preparedRequest.agentLaunch,
+            // The host emits agent_started off its validated receipt; only the
+            // surface-owned launch_source/request_kind cross, so derive them from
+            // the quick telemetry the composer already captured.
+            ...(preparedRequest.quickTelemetry
+              ? {
+                  agentLaunchTelemetry: {
+                    launch_source: preparedRequest.quickTelemetry.launch_source,
+                    request_kind: preparedRequest.quickTelemetry.request_kind
+                  }
+                }
+              : {})
+          }
+        : undefined
     )
   } catch (error) {
     // Why: a missing entry means the user cancelled mid-flight — abandon
@@ -207,12 +221,9 @@ async function executeWorktreeCreation(
   // The host owns the primary agent terminal for any `agentLaunch` create: on
   // `launched` it spawned it (arriving via async hydration), on a post-create
   // `failed` the durable recovery card owns retry. Either way the renderer must
-  // never spawn a primary of its own (I9). agent_started rides the renderer off
-  // the launched receipt because the host create-spawn threads no telemetry.
+  // never spawn a primary of its own (I9). The host emits agent_started off the
+  // launched receipt now that the create path threads the surface telemetry.
   const hostOwnedLaunch = Boolean(preparedRequest.agentLaunch)
-  if (result.agentLaunchResult?.status === 'launched' && preparedRequest.quickTelemetry) {
-    track('agent_started', preparedRequest.quickTelemetry)
-  }
 
   if (worktree.path) {
     const repoConnectionId =
