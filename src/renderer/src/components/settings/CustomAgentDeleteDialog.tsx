@@ -108,13 +108,40 @@ export function CustomAgentDeleteDialog({
         </DialogHeader>
 
         <div className="flex-1 space-y-4 scrollbar-sleek overflow-y-auto px-6 py-4">
-          <p className="text-sm text-muted-foreground">
-            {translate(
-              'auto.components.settings.CustomAgentDeleteDialog.consequences',
-              'Running terminals are unaffected. Attended defaults, quick commands, and commit-message and Source Control recipes fall back to the stock {{base}} command — with no custom executable, arguments, or environment — and show a notice. Existing session resumes keep their captured settings. Automations and background runs fail until you pick another agent. No worktree, history, or provider session is deleted.',
-              { base: baseLabel }
-            )}
-          </p>
+          {/* One idea per line — a wall of prose made this confirmation hard to scan. */}
+          <ul className="list-outside list-disc space-y-1.5 pl-4 text-sm text-muted-foreground">
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDeleteDialog.consequenceRunning',
+                'Running terminals are unaffected.'
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDeleteDialog.consequenceAttended',
+                'Attended defaults, quick commands, and commit-message and Source Control recipes fall back to stock {{base}} — no custom executable, arguments, or environment — and show a notice.',
+                { base: baseLabel }
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDeleteDialog.consequenceResumes',
+                'Existing session resumes keep their captured settings.'
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDeleteDialog.consequenceUnattended',
+                'Automations and background runs fail until you pick another agent.'
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDeleteDialog.consequencePreserved',
+                'No worktree, history, or provider session is deleted.'
+              )}
+            </li>
+          </ul>
 
           {showReferenceLine ? (
             <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/30 px-3 py-2">

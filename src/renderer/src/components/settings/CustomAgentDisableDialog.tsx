@@ -122,12 +122,33 @@ export function CustomAgentDisableDialog({
         </DialogHeader>
 
         <div className="flex-1 space-y-3 scrollbar-sleek overflow-y-auto px-6 py-4">
-          <p className="text-sm text-muted-foreground">
-            {translate(
-              'auto.components.settings.CustomAgentDisableDialog.consequences',
-              'Attended launches fall back to the stock base command — with no custom executable, arguments, or environment — and show a notice. Automations, background, and orchestration runs fail until you pick another agent. Existing session resumes still replay their captured settings. You can re-enable this agent at any time.'
-            )}
-          </p>
+          {/* One idea per line — matches delete confirmation; a single paragraph was too dense. */}
+          <ul className="list-outside list-disc space-y-1.5 pl-4 text-sm text-muted-foreground">
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDisableDialog.consequenceAttended',
+                'Attended launches fall back to the stock base command — no custom executable, arguments, or environment — and show a notice.'
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDisableDialog.consequenceUnattended',
+                'Automations, background, and orchestration runs fail until you pick another agent.'
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDisableDialog.consequenceResumes',
+                'Existing session resumes still replay their captured settings.'
+              )}
+            </li>
+            <li>
+              {translate(
+                'auto.components.settings.CustomAgentDisableDialog.consequenceReversible',
+                'You can re-enable this agent at any time.'
+              )}
+            </li>
+          </ul>
           {conflict ? (
             <p className="text-sm text-amber-600 dark:text-amber-500">
               {translate(
