@@ -264,3 +264,48 @@ describe('AgentCombobox stale reference (F3)', () => {
     expect(screen.queryByText(/this agent is unavailable/i)).toBeNull()
   })
 })
+
+describe('AgentCombobox custom-agent base icon', () => {
+  const CUSTOM_ID = 'custom-agent:codex:abc' as TuiAgent
+  function customEntry(baseAgent: AgentCatalogEntry['baseAgent']): AgentCatalogEntry {
+    return {
+      id: CUSTOM_ID,
+      label: 'My Codex',
+      cmd: 'codex',
+      homepageUrl: 'https://example.com',
+      baseAgent
+    }
+  }
+
+  it('shows the base harness icon (not the letter fallback) and the human label for a selected custom', () => {
+    const codexIcon = renderToStaticMarkup(<AgentIcon agent="codex" />)
+    const withBase = renderToStaticMarkup(
+      <AgentCombobox agents={[customEntry('codex')]} value={CUSTOM_ID} onValueChange={vi.fn()} />
+    )
+    const withoutBase = renderToStaticMarkup(
+      <AgentCombobox agents={[customEntry(undefined)]} value={CUSTOM_ID} onValueChange={vi.fn()} />
+    )
+    // baseAgent routes the icon to the real Codex harness mark...
+    expect(withBase).toContain(codexIcon)
+    // ...where the bare custom id would otherwise fall to a letter glyph.
+    expect(withoutBase).not.toContain(codexIcon)
+    // The row shows the human label, never the raw custom-agent id.
+    expect(withBase).toContain('My Codex')
+    expect(withBase).not.toContain(CUSTOM_ID)
+  })
+
+  it('renders the base icon on the open custom-agent row', () => {
+    render(
+      <AgentCombobox
+        agents={[customEntry('codex'), entry('claude', 'Claude')]}
+        value={null}
+        onValueChange={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('combobox'))
+    const row = screen.getByText('My Codex').closest('[role="option"]') as HTMLElement
+    // The base (codex) mark has no <text> glyph; the letter fallback would render one.
+    expect(row.querySelector('text')).toBeNull()
+    expect(row.textContent).not.toContain(CUSTOM_ID)
+  })
+})

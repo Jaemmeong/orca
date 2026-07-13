@@ -25,8 +25,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { SettingsSwitch } from '@/components/settings/SettingsFormControls'
 import type RepoCombobox from '@/components/repo/RepoCombobox'
 import AgentCombobox from '@/components/agent/AgentCombobox'
+import { mergeCustomAgentCatalogEntries } from '@/components/agent/custom-agent-catalog-entries'
 import { getAgentCatalog } from '@/lib/agent-catalog'
 import { setDefaultTuiAgent } from '@/lib/agent-catalog-authoring'
+import { useLocalAgentCatalog } from '@/hooks/useLocalAgentCatalog'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { WORKSPACE_FILE_PATH_MIME } from '@/lib/workspace-file-drag'
@@ -627,6 +629,9 @@ export default function NewWorkspaceComposerCard({
   // 'auto' is the migrated legacy null default; treat it as Auto in the picker.
   const defaultTuiAgent = toLegacyAutoPreference(useAppStore((s) => s.settings?.defaultTuiAgent))
   const disabledTuiAgents = useAppStore((s) => s.settings?.disabledTuiAgents ?? [])
+  // Custom agents live in the local catalog snapshot, not GlobalSettings, so the
+  // quick-launch picker needs its own read to offer them alongside built-ins.
+  const { snapshot: localAgentCatalog } = useLocalAgentCatalog()
   const nameInputFocusFrameRef = React.useRef<number | null>(null)
   const branchNameInputId = React.useId()
   const submitShortcutModifierLabel = getScreenSubmitModifierLabel()
@@ -719,11 +724,17 @@ export default function NewWorkspaceComposerCard({
         disabledTuiAgents
       )
     )
-    return getAgentCatalog().filter(
+    const builtIns = getAgentCatalog().filter(
       (agent) =>
         enabledIds.has(agent.id) && (detectedAgentIds === null || detectedAgentIds.has(agent.id))
     )
-  }, [detectedAgentIds, disabledTuiAgents])
+    return mergeCustomAgentCatalogEntries(
+      builtIns,
+      localAgentCatalog,
+      disabledTuiAgents,
+      detectedAgentIds
+    )
+  }, [detectedAgentIds, disabledTuiAgents, localAgentCatalog])
 
   const handleAddRepo = React.useCallback((): void => {
     openModal('add-repo')

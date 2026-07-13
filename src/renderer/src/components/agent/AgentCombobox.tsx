@@ -110,7 +110,7 @@ export default function AgentCombobox({
         value: agent.id,
         agent: agent.id,
         label: agent.label,
-        icon: <AgentIcon agent={agent.id} />,
+        icon: <AgentIcon agent={agent.baseAgent ?? agent.id} />,
         isChecked: value === agent.id,
         isDefault: defaultAgent === agent.id
       })
@@ -288,7 +288,7 @@ export default function AgentCombobox({
                 </span>
               ) : selectedAgent ? (
                 <span className="inline-flex min-w-0 flex-1 items-center gap-1.5">
-                  <AgentIcon agent={selectedAgent.id} />
+                  <AgentIcon agent={selectedAgent.baseAgent ?? selectedAgent.id} />
                   <span className="truncate">{selectedAgent.label}</span>
                 </span>
               ) : (
