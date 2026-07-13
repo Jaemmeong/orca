@@ -10,13 +10,14 @@ import {
   AgentLaunchAdmissionStore,
   LaunchAdmissionCoordinator
 } from './agent-launch-admission-store'
-import type { GlobalSettings } from '../../shared/types'
+import type { CustomTuiAgentId, GlobalSettings } from '../../shared/types'
 import type {
   ResolvedAgentLaunch,
   AgentLaunchSnapshot
 } from '../../shared/agent-launch-host-contract'
 import type { ResolveAgentLaunchRequest } from '../../shared/agent-launch-host-contract'
 import type { ResolveAgentLaunchOutcome } from './resolve-agent-launch'
+import { customId } from './agent-launch-test-catalog'
 
 function makeSnapshot(): AgentLaunchSnapshot {
   return {
@@ -245,5 +246,77 @@ describe('resolveAgentLaunchSpawn', () => {
       ok: false,
       failure: { code: 'base_agent_unavailable', baseAgent: 'claude' }
     })
+  })
+})
+
+// M-1 / plan §1364: Source Control AI runs the same custom-agent launch for a
+// GitHub, a GitLab, and a generic (non-GitHub/GitLab) review fixture. The
+// provider adapter supplies task text/URL (commandInputTemplate); it must not
+// reinterpret the agent id or assemble its command — recipe resolution reads
+// only agentArgs, so the launch is provider-neutral by construction.
+describe('Source Control AI custom-agent launch is provider-neutral (M-1, §1364)', () => {
+  const REVIEW_ACTION = 'resolveComments'
+  const CUSTOM: CustomTuiAgentId = customId('claude', '00000000-0000-4000-8000-0000000000c1')
+
+  const PROVIDER_FIXTURES = [
+    { name: 'GitHub', template: 'GitHub PR review: https://github.com/acme/app/pull/12' },
+    {
+      name: 'GitLab',
+      template: 'GitLab MR review: https://gitlab.com/acme/app/-/merge_requests/34'
+    },
+    {
+      name: 'Gitea (generic non-GitHub/GitLab)',
+      template: 'Gitea review: https://gitea.example.com/acme/app/pulls/7'
+    }
+  ] as const
+
+  // Each provider configures the SAME custom-agent recipe args on the review
+  // action but a DIFFERENT provider task-text template. Returns the resolver
+  // request the host assembled.
+  async function resolvedRequestFor(template: string): Promise<ResolveAgentLaunchRequest> {
+    const resolve = vi.fn((_request: ResolveAgentLaunchRequest) => ({
+      ok: true as const,
+      launch: makeLaunch()
+    }))
+    const deps = makeDeps(resolve)
+    await resolveAgentLaunchSpawn(
+      deps,
+      baseInput({
+        request: {
+          selection: { kind: 'agent', agent: CUSTOM },
+          prompt: 'x',
+          sourceRecord: { owner: 'source-control-recipe', id: REVIEW_ACTION }
+        },
+        recipeRepo: {
+          sourceControlAi: {
+            actionOverrides: {
+              [REVIEW_ACTION]: { agentArgs: '--review one', commandInputTemplate: template }
+            }
+          }
+        }
+      })
+    )
+    return resolve.mock.calls[0]![0]
+  }
+
+  for (const fixture of PROVIDER_FIXTURES) {
+    it(`${fixture.name}: threads the identical recipe args and preserves the custom agent id`, async () => {
+      const request = await resolvedRequestFor(fixture.template)
+      expect(request.perLaunchArgs).toBe('--review one')
+      expect(request.selection).toEqual({ kind: 'agent', agent: CUSTOM })
+      expect(request.reference).toEqual({ kind: 'persisted', owner: 'source-control-recipe' })
+      // The provider's task text/URL never enters the resolved launch args.
+      expect(request.perLaunchArgs).not.toMatch(/https?:|github|gitlab|gitea/i)
+    })
+  }
+
+  it('all three providers resolve byte-identical launch args and agent identity', async () => {
+    const [gh, gl, generic] = await Promise.all(
+      PROVIDER_FIXTURES.map((fixture) => resolvedRequestFor(fixture.template))
+    )
+    expect(gh.perLaunchArgs).toBe(gl.perLaunchArgs)
+    expect(gl.perLaunchArgs).toBe(generic.perLaunchArgs)
+    expect(gh.selection).toEqual(generic.selection)
+    expect(gh.reference).toEqual(generic.reference)
   })
 })

@@ -46,7 +46,10 @@ function statusVariant(status: AgentCatalogRowStatus): BadgeVariant {
     case 'custom-executable':
     case 'custom-path':
       return 'outline'
-    default:
+    case 'base-disabled':
+    case 'disabled':
+    case 'not-installed':
+    case 'repair-required':
       // Disabled/base-disabled/not-installed/repair read as quiet, non-primary.
       return 'ghost'
   }

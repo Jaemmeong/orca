@@ -347,6 +347,54 @@ describe('resolveTerminalAgentLaunch recipe-arg threading (U7)', () => {
   })
 })
 
+describe('resolveTerminalAgentLaunch Source Control AI provider contract (plan §1364)', () => {
+  // §1364: the SAME custom-agent launch assertion must hold for GitHub, GitLab, and
+  // one non-GitHub/GitLab generic review provider. A provider adapter may supply the
+  // review work item's task text/URLs, but none may reinterpret the custom agent id
+  // or assemble its command — the id reaches the resolver unchanged and only the host
+  // recipe contributes the per-launch argv band.
+  const CUSTOM_AGENT = 'custom-agent:codex:sc-ai-review' as const
+
+  it.each([
+    ['github', 'Review PR github.com/acme/app/pull/12'],
+    ['gitlab', 'Review MR gitlab.com/acme/app/-/merge_requests/34'],
+    ['generic', 'Review change bitbucket.org/acme/app/pull-requests/56']
+  ] as const)(
+    'resolves the same custom-agent recipe launch for a %s review work item',
+    async (_provider, providerTaskText) => {
+      let captured: ResolveAgentLaunchRequest | null = null
+      const resolve = (request: ResolveAgentLaunchRequest): ResolveAgentLaunchOutcome => {
+        captured = request
+        return { ok: true as const, launch: makeLaunch() }
+      }
+      const deps = makeDeps(resolve)
+      const result = await resolveTerminalAgentLaunch(deps, {
+        ...makeArgs(),
+        request: {
+          selection: { kind: 'agent' as const, agent: CUSTOM_AGENT },
+          // The provider-supplied review context is the only provider-varying input.
+          prompt: providerTaskText,
+          sourceRecord: { owner: 'source-control-recipe' as const, id: 'fixChecks' }
+        },
+        recipeRepo: {
+          sourceControlAi: { actionOverrides: { fixChecks: { agentArgs: '--recipe one' } } }
+        }
+      })
+
+      expect(result.kind).toBe('resolved')
+      if (result.kind !== 'resolved') {
+        return
+      }
+      // (1) the custom agent id reaches the resolver unchanged — never reinterpreted.
+      expect(captured!.selection).toEqual({ kind: 'agent', agent: CUSTOM_AGENT })
+      // (2) only the host recipe contributes argv; the provider assembles no command.
+      expect(captured!.perLaunchArgs).toBe('--recipe one')
+      // (3) the provider-supplied task text flows through as the launch prompt.
+      expect(result.fields.postReadyPrompt?.followupPrompt).toBe(providerTaskText)
+    }
+  )
+})
+
 describe('resolveTerminalAgentLaunch resume/fork', () => {
   const KEY = { worktreeId: 'wt-1', baseAgent: 'claude' as const, providerSessionId: 'sess-1' }
 

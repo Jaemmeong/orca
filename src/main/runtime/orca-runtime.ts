@@ -18439,7 +18439,8 @@ export class OrcaRuntimeService {
             return pending.scope
           case 'background':
             return getHostBackgroundAgentLaunchStore().get(pending.scope)?.worktreeId ?? null
-          default:
+          case 'automation':
+          case 'orchestration':
             return null
         }
       },

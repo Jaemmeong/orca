@@ -70,13 +70,22 @@ export function AgentCatalogList({
           )}
         </p>
       ) : (
-        <div ref={scrollRef} className="max-h-[28rem] overflow-y-auto">
-          <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+        <div ref={scrollRef} className="max-h-[28rem] scrollbar-sleek overflow-y-auto">
+          <div
+            role="list"
+            aria-label={translate('auto.components.settings.AgentCatalogList.listLabel', 'Agents')}
+            style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}
+          >
             {virtualizer.getVirtualItems().map((item) => {
               const row = filtered[item.index]
               return (
                 <div
                   key={item.key}
+                  role="listitem"
+                  // Windowing mounts only a slice, so give assistive tech the true
+                  // total and this row's position — otherwise it announces "of 60".
+                  aria-setsize={filtered.length}
+                  aria-posinset={item.index + 1}
                   data-index={item.index}
                   data-agent-catalog-row={agentCatalogRowKey(row)}
                   ref={virtualizer.measureElement}

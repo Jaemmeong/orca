@@ -2602,7 +2602,8 @@
                   "c00421d320": "포크 컨텍스트가 복사되었습니다. agent를 실행하고 붙여넣어 포크를 시작합니다.",
                   "f62b40e2c7": "복사할 터미널 컨텍스트가 없습니다",
                   "373a3103e7": "컨텍스트가 복사되었습니다",
-                  "3fc568a49d": "컨텍스트 복사 실패"
+                  "3fc568a49d": "컨텍스트 복사 실패",
+                  "customForkUnavailable": "Forking isn't available for custom agents yet"
                 }
               }
             },
@@ -9000,7 +9001,8 @@
         "AgentCatalogList": {
           "searchPlaceholder": "Search agents by name, harness, or command…",
           "searchLabel": "Search agents",
-          "noMatch": "No agents match your search."
+          "noMatch": "No agents match your search.",
+          "listLabel": "Agents"
         },
         "AgentCatalogManager": {
           "title": "Agents",

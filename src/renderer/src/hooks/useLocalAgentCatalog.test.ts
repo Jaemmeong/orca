@@ -77,6 +77,23 @@ describe('useLocalAgentCatalog', () => {
     expect(getLocal).toHaveBeenCalledTimes(1)
   })
 
+  it('neither re-renders nor reloads when an unrelated settings slice changes', async () => {
+    let renders = 0
+    const { result } = renderHook(() => {
+      renders += 1
+      return useLocalAgentCatalog()
+    })
+    await waitFor(() => expect(result.current.snapshot?.revision).toBe(1))
+    const rendersAfterLoad = renders
+    const snapshotRef = result.current.snapshot
+    act(() => settingsChangedCallback?.({ theme: 'dark', fontSize: 14 }))
+    // The catalog UI subscribes to no whole-settings store, so an unrelated slice
+    // fires no setState: no reload, no re-render, stable snapshot identity (oracle 25).
+    expect(getLocal).toHaveBeenCalledTimes(1)
+    expect(renders).toBe(rendersAfterLoad)
+    expect(result.current.snapshot).toBe(snapshotRef)
+  })
+
   it('does not let a stale in-flight load overwrite an adopted snapshot', async () => {
     let resolveFirst: ((value: LocalAgentCatalogSnapshot) => void) | null = null
     getLocal.mockImplementationOnce(

@@ -186,7 +186,7 @@ export default function AgentLaunchCapacityRecoverySheet(): React.JSX.Element | 
             )}
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+        <div className="min-h-0 flex-1 scrollbar-sleek overflow-y-auto px-4 pb-4">
           {loadFailed ? (
             <p className="text-sm text-muted-foreground">
               {translate(

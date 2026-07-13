@@ -2602,7 +2602,8 @@
                   "c00421d320": "Fork context copied. Launch an agent and paste it to start the fork.",
                   "f62b40e2c7": "No terminal context to copy",
                   "373a3103e7": "Context copied",
-                  "3fc568a49d": "Failed to copy context."
+                  "3fc568a49d": "Failed to copy context.",
+                  "customForkUnavailable": "Forking isn't available for custom agents yet"
                 }
               }
             },
@@ -9000,7 +9001,8 @@
         "AgentCatalogList": {
           "searchPlaceholder": "Search agents by name, harness, or command…",
           "searchLabel": "Search agents",
-          "noMatch": "No agents match your search."
+          "noMatch": "No agents match your search.",
+          "listLabel": "Agents"
         },
         "AgentCatalogManager": {
           "title": "Agents",

@@ -63,7 +63,7 @@ export function CustomAgentEditorDialog({
           <DialogDescription>{dialogDescription(mode, baseLabel)}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <div className="flex-1 space-y-4 scrollbar-sleek overflow-y-auto px-6 py-4">
           <CustomAgentErrorSummary
             fieldErrors={editor.fieldErrors}
             formError={editor.formError}

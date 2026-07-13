@@ -155,7 +155,7 @@ export function BuiltInDisableDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 space-y-3 overflow-y-auto px-6 py-4">
+        <div className="flex-1 space-y-3 scrollbar-sleek overflow-y-auto px-6 py-4">
           {countRows.length > 0 ? (
             <ul className="space-y-1">
               {countRows.map((row) => (

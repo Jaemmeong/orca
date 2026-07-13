@@ -34,7 +34,9 @@ function unattendedFailureTitle(intent: PersistedAgentLaunchFailure['intent']): 
         'agentLaunch.unattendedFailure.title.background',
         "A background agent didn't start."
       )
-    default:
+    case 'cli':
+    case 'interactive':
+    case 'resume':
       return translate(
         'agentLaunch.unattendedFailure.title.generic',
         "An agent launch didn't finish."

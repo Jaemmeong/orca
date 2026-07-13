@@ -67,7 +67,6 @@ describe('repo slice skipped-onboarding folder startup', () => {
             allowEmptyPromptLaunch: true
           },
           telemetry: {
-            agent_kind: 'codex',
             launch_source: 'onboarding',
             request_kind: 'new'
           }

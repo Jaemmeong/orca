@@ -107,7 +107,7 @@ export function CustomAgentDeleteDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+        <div className="flex-1 space-y-4 scrollbar-sleek overflow-y-auto px-6 py-4">
           <p className="text-sm text-muted-foreground">
             {translate(
               'auto.components.settings.CustomAgentDeleteDialog.consequences',

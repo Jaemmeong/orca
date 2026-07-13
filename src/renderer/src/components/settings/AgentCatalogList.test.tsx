@@ -112,4 +112,55 @@ describe('AgentCatalogList', () => {
     expect(mounted.length).toBeGreaterThan(0)
     expect(mounted.length).toBeLessThanOrEqual(60)
   })
+
+  it('exposes list/listitem roles with the true set size and position for the windowed list', () => {
+    const rows = Array.from({ length: 1000 }, (_, i) => customRow(i))
+    const { container } = render(<AgentCatalogList rows={rows} {...callbacks()} />)
+    expect(screen.getByRole('list', { name: 'Agents' })).toBeTruthy()
+    const items = container.querySelectorAll('[role="listitem"]')
+    expect(items.length).toBeGreaterThan(0)
+    expect(items.length).toBeLessThanOrEqual(60)
+    // Only a slice is mounted, but screen-reader metadata reports the full 1,000.
+    for (const item of items) {
+      expect(item.getAttribute('aria-setsize')).toBe('1000')
+    }
+    const first = container.querySelector('[role="listitem"][data-index="0"]')
+    expect(first?.getAttribute('aria-posinset')).toBe('1')
+  })
+
+  it('matches rows by base and command summary, not just the visible label', () => {
+    const rows: AgentCatalogRow[] = [
+      { ...customRow(1), label: 'Zeta', searchSummary: 'zeta claude sonnet' },
+      { ...customRow(2), label: 'Omega', searchSummary: 'omega codex gpt' }
+    ]
+    render(<AgentCatalogList rows={rows} {...callbacks()} />)
+    // 'claude' appears only in the search summary, never in the rendered label.
+    fireEvent.change(screen.getByLabelText('Search agents'), { target: { value: 'claude' } })
+    expect(screen.getByText('Zeta')).toBeTruthy()
+    expect(screen.queryByText('Omega')).toBeNull()
+  })
+
+  it('preserves grouping order when filtering narrows the catalog', () => {
+    const rows: AgentCatalogRow[] = [
+      { ...customRow(1), label: 'Alpha', searchSummary: 'alpha keep' },
+      { ...customRow(2), label: 'Beta', searchSummary: 'beta drop' },
+      { ...customRow(3), label: 'Gamma', searchSummary: 'gamma keep' }
+    ]
+    const { container } = render(<AgentCatalogList rows={rows} {...callbacks()} />)
+    fireEvent.change(screen.getByLabelText('Search agents'), { target: { value: 'keep' } })
+    const keys = Array.from(container.querySelectorAll('[data-agent-catalog-row]')).map((el) =>
+      el.getAttribute('data-agent-catalog-row')
+    )
+    expect(keys).toEqual([rows[0].id, rows[2].id])
+  })
+
+  it('keeps the row action controls keyboard-reachable', () => {
+    render(<AgentCatalogList rows={[customRow(1)]} {...callbacks()} />)
+    const actions = screen.getByLabelText('Actions for Agent 1') as HTMLElement
+    expect(actions.getAttribute('tabindex')).not.toBe('-1')
+    actions.focus()
+    expect(document.activeElement).toBe(actions)
+    const enable = screen.getByLabelText('Enable Agent 1') as HTMLElement
+    expect(enable.getAttribute('tabindex')).not.toBe('-1')
+  })
 })

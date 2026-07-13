@@ -164,7 +164,7 @@ export function AgentPickerListbox<T extends AgentPickerListboxItem>({
           role="listbox"
           id={listboxId}
           aria-label={listAriaLabel}
-          className="max-h-[18rem] overflow-y-auto p-1"
+          className="max-h-[18rem] scrollbar-sleek overflow-y-auto p-1"
         >
           <div
             style={{

@@ -9,13 +9,12 @@ import { activateAndRevealWorktree } from '@/lib/worktree-activation'
 import { useAppStore } from '@/store'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { TUI_AGENT_CONFIG } from '../../../../shared/tui-agent-config'
-import { resolveTuiAgentConfig } from '../../../../shared/custom-tui-agents'
+import { isCustomTuiAgentId } from '../../../../shared/custom-tui-agent-identity'
 import { slugifyForWorkspaceName } from '../../../../shared/workspace-name'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../../shared/constants'
 import type { TuiAgent } from '../../../../shared/types'
-import { isWslUncPath } from '../../../../shared/wsl-paths'
-import type { ProjectExecutionRuntimeResolution } from '../../../../shared/project-execution-runtime'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
+import { getForkAgentLaunchPlatform, preflightForkAgentTrust } from './fork-agent-host-preflight'
 import { translate } from '@/i18n/i18n'
 
 type ForkAgentSessionFromPaneArgs = {
@@ -30,6 +29,9 @@ export type PreparedAgentSessionFork = {
   agent: TuiAgent | null
   worktreeId: string
   pane: ManagedPane
+  /** True when the source pane ran a custom agent, so `agent` was filtered to null:
+   *  host-owned custom-agent fork is not wired yet, and this flags the honest notice. */
+  sourceWasCustomAgent: boolean
 }
 
 function buildForkWorkspaceName(sourceName: string): string {
@@ -89,52 +91,6 @@ async function copyForkContext(prompt: string, pane: ManagedPane): Promise<boole
   }
 }
 
-function getForkAgentLaunchPlatform(args: {
-  repo: { connectionId?: string | null } | null | undefined
-  worktreePath?: string | null
-  projectRuntime?: ProjectExecutionRuntimeResolution
-}): NodeJS.Platform | undefined {
-  if (args.projectRuntime?.status === 'repair-required') {
-    return args.projectRuntime.repair.preferredRuntime.kind === 'wsl' ? 'linux' : undefined
-  }
-  if (args.projectRuntime?.status === 'resolved' && args.projectRuntime.runtime.kind === 'wsl') {
-    return 'linux'
-  }
-  if (args.repo?.connectionId || (args.worktreePath && isWslUncPath(args.worktreePath))) {
-    return 'linux'
-  }
-  return undefined
-}
-
-async function preflightForkAgentTrust(args: {
-  agent: TuiAgent
-  workspacePath?: string | null
-  connectionId?: string | null
-}): Promise<void> {
-  const { agent, workspacePath, connectionId } = args
-  // Why: resolve a custom id to its base harness's config before reading the
-  // built-in-only trust preset — a raw custom id would index an undefined entry
-  // and crash; a tombstoned/unknown id degrades to no preflight.
-  const { settings } = useAppStore.getState()
-  const preflight = resolveTuiAgentConfig(
-    agent,
-    settings?.customTuiAgents,
-    settings?.deletedCustomTuiAgents
-  )?.preflightTrust
-  if (!preflight || !workspacePath || !window.api.agentTrust?.markTrusted) {
-    return
-  }
-  try {
-    await window.api.agentTrust.markTrusted({
-      preset: preflight,
-      workspacePath,
-      ...(connectionId ? { connectionId } : {})
-    })
-  } catch {
-    // Best-effort: if the trust artifact cannot be written, keep the existing launch path.
-  }
-}
-
 export function prepareAgentSessionForkFromPane({
   pane,
   tabId,
@@ -142,11 +98,15 @@ export function prepareAgentSessionForkFromPane({
 }: ForkAgentSessionFromPaneArgs): PreparedAgentSessionFork | null {
   const paneKey = makePaneKey(tabId, pane.leafId)
   const state = useAppStore.getState()
-  const sourceAgent = resolveTuiAgent(state.agentStatusByPaneKey[paneKey]?.agentType)
-  const tabAgent = resolveTuiAgent(
-    state.tabsByWorktree[worktreeId]?.find((tab) => tab.id === tabId)?.launchAgent
-  )
+  const rawSourceAgent = state.agentStatusByPaneKey[paneKey]?.agentType
+  const rawTabAgent = state.tabsByWorktree[worktreeId]?.find((tab) => tab.id === tabId)?.launchAgent
+  const sourceAgent = resolveTuiAgent(rawSourceAgent)
+  const tabAgent = resolveTuiAgent(rawTabAgent)
   const agent = sourceAgent ?? tabAgent
+  // resolveTuiAgent nulls custom ids; a null agent whose raw source was a custom id
+  // means the source pane ran a custom agent that fork cannot relaunch yet.
+  const sourceWasCustomAgent =
+    !agent && (isCustomTuiAgentId(rawSourceAgent) || isCustomTuiAgentId(rawTabAgent))
   // Why: v1 is a context fork, not a process clone. Capturing scrollback keeps
   // SSH and local panes on the same path because both expose xterm state here.
   const prompt = buildAgentSessionForkPrompt({
@@ -170,7 +130,8 @@ export function prepareAgentSessionForkFromPane({
     prompt,
     agent,
     worktreeId,
-    pane
+    pane,
+    sourceWasCustomAgent
   }
 }
 
@@ -282,6 +243,16 @@ export async function startAgentSessionFork(fork: PreparedAgentSessionFork): Pro
 
   if (!fork.agent) {
     activateAndRevealWorktree(forkWorktreeId, { sidebarRevealBehavior: 'auto' })
+    if (fork.sourceWasCustomAgent) {
+      // Host-owned fork for custom agents lands post-release; name the limit instead
+      // of silently degrading to the copy-context path with no explanation.
+      toast.message(
+        translate(
+          'auto.components.terminal.pane.terminal.agent.session.fork.customForkUnavailable',
+          "Forking isn't available for custom agents yet"
+        )
+      )
+    }
     return copyAgentSessionForkContext(fork)
   }
   await preflightForkAgentTrust({

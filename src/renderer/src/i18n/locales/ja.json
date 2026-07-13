@@ -2602,7 +2602,8 @@
                   "c00421d320": "フォークコンテキストがコピーされました。agent を起動し、貼り付けてフォークを開始します。",
                   "f62b40e2c7": "コピーするターミナルコンテキストがありません",
                   "373a3103e7": "コンテキストをコピーしました",
-                  "3fc568a49d": "コンテキストのコピーに失敗しました"
+                  "3fc568a49d": "コンテキストのコピーに失敗しました",
+                  "customForkUnavailable": "Forking isn't available for custom agents yet"
                 }
               }
             },
@@ -9000,7 +9001,8 @@
         "AgentCatalogList": {
           "searchPlaceholder": "Search agents by name, harness, or command…",
           "searchLabel": "Search agents",
-          "noMatch": "No agents match your search."
+          "noMatch": "No agents match your search.",
+          "listLabel": "Agents"
         },
         "AgentCatalogManager": {
           "title": "Agents",
