@@ -115,7 +115,10 @@ describe('registerSettingsHandlers', () => {
     registerSettingsHandlers(store as never)
     const handler = handleMock.mock.calls.find(
       (call) => call[0] === 'settings:update-pr-bot-author-override'
-    )?.[1] as (event: typeof settingsInvokeEvent, args: { author: string; isBot: boolean }) => unknown
+    )?.[1] as (
+      event: typeof settingsInvokeEvent,
+      args: { author: string; isBot: boolean }
+    ) => unknown
 
     const result = handler(settingsInvokeEvent, { author: ' Bob ', isBot: true })
 
@@ -315,6 +318,27 @@ describe('registerSettingsHandlers', () => {
     ) => Promise<unknown>
 
     await handler(settingsInvokeEvent, { floatingTerminalTrustedCwds: ['/tmp/notes'] })
+
+    expect(store.updateSettings).toHaveBeenCalledWith(
+      {},
+      { notifyListeners: true, originWebContentsId: 1 }
+    )
+  })
+
+  it('does not accept plugin authority grants from generic renderer settings IPC', async () => {
+    store.getSettings.mockReturnValue({ pluginConsents: {}, disabledPlugins: [] })
+    store.updateSettings.mockReturnValue({ pluginConsents: {}, disabledPlugins: [] })
+    registerSettingsHandlers(store as never)
+
+    const handler = handleMock.mock.calls.find((call) => call[0] === 'settings:set')?.[1] as (
+      _event: unknown,
+      args: unknown
+    ) => Promise<unknown>
+
+    await handler(settingsInvokeEvent, {
+      pluginConsents: { 'orca-samples.demo': 'sha256-forged' },
+      disabledPlugins: ['orca-samples.demo']
+    })
 
     expect(store.updateSettings).toHaveBeenCalledWith(
       {},
