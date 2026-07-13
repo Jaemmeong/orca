@@ -122,30 +122,29 @@ export function CustomAgentDisableDialog({
         </DialogHeader>
 
         <div className="flex-1 space-y-3 scrollbar-sleek overflow-y-auto px-6 py-4">
-          {/* One idea per line — matches delete confirmation; a single paragraph was too dense. */}
           <ul className="list-outside list-disc space-y-1.5 pl-4 text-sm text-muted-foreground">
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDisableDialog.consequenceAttended',
-                'Attended launches fall back to the stock base command — no custom executable, arguments, or environment — and show a notice.'
+                'New interactive launches use the stock base agent and show a notice.'
               )}
             </li>
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDisableDialog.consequenceUnattended',
-                'Automations, background, and orchestration runs fail until you pick another agent.'
+                'Automations, background, and orchestration fail until reassigned.'
               )}
             </li>
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDisableDialog.consequenceResumes',
-                'Existing session resumes still replay their captured settings.'
+                'Session resumes still work.'
               )}
             </li>
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDisableDialog.consequenceReversible',
-                'You can re-enable this agent at any time.'
+                'You can re-enable anytime.'
               )}
             </li>
           </ul>

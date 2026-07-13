@@ -69,7 +69,12 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import type { TabCreateEntryArgs } from './tab-create-entry-action'
-import { buildTabAgentLaunchOptions, orderTabLaunchAgents } from './tab-agent-launch-options'
+import {
+  buildTabAgentLaunchOptions,
+  deriveTabCustomAgentEntries,
+  orderTabLaunchAgents
+} from './tab-agent-launch-options'
+import { useLocalAgentCatalog } from '@/hooks/useLocalAgentCatalog'
 import { buildTabCreateMenuOptions, type TabCreateMenuOption } from './tab-create-menu-options'
 import { MobileEmulatorTabIntroCallout } from '../emulator-pane/MobileEmulatorTabIntroCallout'
 import { shouldShowMobileEmulatorTabIntro } from '../emulator-pane/mobile-emulator-tab-intro-visibility'
@@ -91,6 +96,7 @@ const NEW_TAB_MENU_TERMINAL_FOCUS_TIMEOUT_MS = 5000
 type GitStatusEntries = ReturnType<typeof useAppStore.getState>['gitStatusByWorktree'][string]
 const EMPTY_GIT_STATUS_ENTRIES: GitStatusEntries = []
 const EMPTY_AGENT_CMD_OVERRIDES: Partial<Record<TuiAgent, string>> = {}
+const EMPTY_DISABLED_TUI_AGENTS: readonly TuiAgent[] = []
 const EMPTY_UNIFIED_TABS: readonly Tab[] = []
 const AGENT_DETECTION_LOCAL_TARGET_KEY = 'local'
 
@@ -329,6 +335,12 @@ function TabBarInner({
   const agentCmdOverrides = useAppStore(
     (s) => s.settings?.agentCmdOverrides ?? EMPTY_AGENT_CMD_OVERRIDES
   )
+  const disabledTuiAgents = useAppStore(
+    (s) => s.settings?.disabledTuiAgents ?? EMPTY_DISABLED_TUI_AGENTS
+  )
+  // Custom agents live in the local catalog snapshot, not GlobalSettings, so
+  // the quick-launch list needs its own read to offer them alongside built-ins.
+  const { snapshot: localAgentCatalog } = useLocalAgentCatalog()
   const agentDetectionTargetKey = useAppStore((s): string | undefined => {
     const connectionId = getConnectionIdFromState(s, worktreeId)
     if (connectionId === undefined) {
@@ -360,14 +372,14 @@ function TabBarInner({
     return { kind: 'local' }
   }, [agentDetectionTargetKey])
   const { detectedIds } = useDetectedAgents(agentDetectionTarget)
-  const agentLaunchOptions = useMemo(
-    () =>
-      buildTabAgentLaunchOptions(
-        orderTabLaunchAgents(defaultAgent, detectedIds ?? []),
-        agentCmdOverrides
-      ),
-    [agentCmdOverrides, defaultAgent, detectedIds]
-  )
+  const agentLaunchOptions = useMemo(() => {
+    const customs = deriveTabCustomAgentEntries(localAgentCatalog, disabledTuiAgents)
+    return buildTabAgentLaunchOptions(
+      orderTabLaunchAgents(defaultAgent, detectedIds ?? [], customs),
+      agentCmdOverrides,
+      customs
+    )
+  }, [agentCmdOverrides, defaultAgent, detectedIds, disabledTuiAgents, localAgentCatalog])
   const isWebClient = (globalThis as { __ORCA_WEB_CLIENT__?: boolean }).__ORCA_WEB_CLIENT__ === true
   const windowsTerminalCapabilityOwnerKey = getWindowsTerminalCapabilityOwnerKey(
     activeRuntimeEnvironmentId,

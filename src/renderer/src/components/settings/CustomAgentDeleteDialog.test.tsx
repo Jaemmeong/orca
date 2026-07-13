@@ -58,11 +58,8 @@ describe('CustomAgentDeleteDialog', () => {
   it('states permanent loss and distinct base-global versus stock-fallback copy', () => {
     renderDialog()
     expect(screen.getByText(/can't be undone/i)).toBeTruthy()
-    // Consequences render as one idea per line so the wall of prose is scannable.
-    expect(screen.getByText('Running terminals are unaffected.')).toBeTruthy()
-    expect(
-      screen.getByText('Automations and background runs fail until you pick another agent.')
-    ).toBeTruthy()
+    expect(screen.getByText('Open terminals keep running.')).toBeTruthy()
+    expect(screen.getByText('Automations and background runs fail until reassigned.')).toBeTruthy()
     // Built-in-global rebind uses the base's own launch fields...
     expect(screen.getByText("Uses Claude's own command, arguments, and environment.")).toBeTruthy()
     // ...while the stock fallback runs only the plain command — distinct copy (Gate G8).

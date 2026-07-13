@@ -59,8 +59,8 @@ describe('CustomAgentDisableDialog', () => {
   it('names the count, explains consequences, and is not destructive-styled', () => {
     renderDialog()
     expect(screen.getByText('Used by 2 saved items.')).toBeTruthy()
-    expect(screen.getByText(/fall back to the stock base command/i)).toBeTruthy()
-    expect(screen.getByText(/still replay their captured settings/i)).toBeTruthy()
+    expect(screen.getByText(/use the stock base agent/i)).toBeTruthy()
+    expect(screen.getByText(/session resumes still work/i)).toBeTruthy()
     // Reversible action: default (primary) button, never the destructive variant.
     const button = screen.getByRole('button', { name: 'Disable agent' })
     expect(button.className).not.toContain('bg-destructive')

@@ -102,43 +102,36 @@ export function CustomAgentDeleteDialog({
           <DialogDescription>
             {translate(
               'auto.components.settings.CustomAgentDeleteDialog.permanent',
-              "This can't be undone. Its arguments, environment, and executable override are not recoverable."
+              "This can't be undone. Custom launch settings are gone for good."
             )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 space-y-4 scrollbar-sleek overflow-y-auto px-6 py-4">
-          {/* One idea per line — a wall of prose made this confirmation hard to scan. */}
           <ul className="list-outside list-disc space-y-1.5 pl-4 text-sm text-muted-foreground">
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDeleteDialog.consequenceRunning',
-                'Running terminals are unaffected.'
+                'Open terminals keep running.'
               )}
             </li>
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDeleteDialog.consequenceAttended',
-                'Attended defaults, quick commands, and commit-message and Source Control recipes fall back to stock {{base}} — no custom executable, arguments, or environment — and show a notice.',
+                'New interactive launches use stock {{base}} and show a notice.',
                 { base: baseLabel }
               )}
             </li>
             <li>
               {translate(
-                'auto.components.settings.CustomAgentDeleteDialog.consequenceResumes',
-                'Existing session resumes keep their captured settings.'
-              )}
-            </li>
-            <li>
-              {translate(
                 'auto.components.settings.CustomAgentDeleteDialog.consequenceUnattended',
-                'Automations and background runs fail until you pick another agent.'
+                'Automations and background runs fail until reassigned.'
               )}
             </li>
             <li>
               {translate(
                 'auto.components.settings.CustomAgentDeleteDialog.consequencePreserved',
-                'No worktree, history, or provider session is deleted.'
+                'Resumes, worktrees, history, and provider sessions stay.'
               )}
             </li>
           </ul>
